@@ -254,7 +254,7 @@ const BLACKS = {
   parlayer: { name: "加码狂人", rarity: "rare", kw: "剧本", desc: "加码条款的最高倍率从 2.0 提高到 2.5" },
   vip:      { name: "VIP 包厢", rarity: "rare", kw: "点数", desc: "每场第一次加买点数免费" },
   onehand:  { name: "只手遮天", rarity: "legend", desc: "选了加码条款也可以滚球" },
-  house:    { name: "庄家是我", rarity: "legend", desc: "单层最高派彩从 4C 提高到 6C；无封顶路线里改为资金池 ×1.5" },
+  house:    { name: "庄家是我", rarity: "legend", desc: "单层最高派彩从 4C 提高到 6C；亡命徒路线里改为资金池 ×1.5" },
   comeback: { name: "回本神话", rarity: "legend", kw: "带出", desc: "撤离老虎机每一档的带出率 +10 个百分点" },
   bountyhunter: { name: "赏金猎人", rarity: "rare", kw: "陷阱", p1: true, desc: "亡命徒专属。陷阱（地雷、荆棘、断头台）每杀死一个怪物，给你 0.5C；陷阱处决 Boss 给 3C" },
   spotlight: { name: "万众瞩目", rarity: "rare", kw: "热度", p1: true, desc: "亡命徒专属。热度 ≥ 70 时：押中后怒气涨两倍，怪物只吃一半的怒气加成" },
@@ -355,7 +355,7 @@ const TEXT = {
     p1: { name: "路一：亡命徒", desc: "下注不设上限，最多押上全部身家；押得越大，赔率被你自己压得越低，每层最多赢走庄家的资金池。<b>勇者死了不复活</b>，没有过路费，只能靠复活卡救人。<b>庄家怒气</b>：押中赚得越多，怒气越高，资金池越大、押中多分钱越多，但下一层怪物也越强。商店每 2 层开一次。<b>Boss 层不能撤离</b>：只有在商店里刷到「撤离通行证」才能走。打到第 50 层，结局照常 100% 带走。" },
     p2: { name: "路二：大押注", desc: "押注上限、派彩上限、剧本盘都放大到 2.5 倍，过路费放大到 2 倍，后半程的 Boss 强一成五。只有第 35 层和第 45 层打赢 Boss 才能撤离，老虎机多一档 150%。" },
     p3: { name: "路三：现在就走", desc: "按摇到的带出率撤离，这一局结束。" } },
-  pass: { name: "撤离通行证", desc: "无封顶路线唯一的出口。先摇带出率，再决定走不走。离开商店或刷新货架，它就没了。", pull: "摇带出率", use: "用它撤离" },
+  pass: { name: "撤离通行证", desc: "亡命徒路线唯一的出口。先摇带出率，再决定走不走。离开商店或刷新货架，它就没了。", pull: "摇带出率", use: "用它撤离" },
   pathName: { 1: "亡命徒", 2: "大押注" },
   revive: { name: "复活卡", desc: "结算时救回一名阵亡的勇者（满血归队）。最多带 3 张。", have: "复活卡" },
   angerNote: "庄家怒气：押中赚得越多越高（每赚 1 个押注上限 +10，最高 100），没押中或不押就减半。怒气越高，资金池越大、押中多分越多，但怪物也越强。",
@@ -1350,7 +1350,6 @@ const extractRate = () => (G.extractSpin ? G.extractSpin.base + (has("comeback")
 function decideExtract(leave) { if (leave) { spinExtract(); return endRun("extract"); } genReward(); G.phase = "reward"; autosave(); }
 function endRun(kind) {
   const full = ["clear", "duel", "fix", "oops", "tower"].includes(kind);
-  // 无封顶路线没有白拿的 100%：打完结局，带出率还要按通行证那张表摇一次（收购除外）
   const rate = full ? 1 : kind === "extract" ? extractRate() : 0;
   const takeGold = Math.floor(G.gold * rate), out = [], outKeys = [], dup = alreadySettled();
   // 世纪假赛：上阵的勇者"死"在了戏里，只有没上场的进英灵殿
@@ -1379,7 +1378,7 @@ function rollFrom(defs, n, r, w, skip) {
 const p1Only = d => d && d.p1 && G.path !== 1;   // 亡命徒专属牌只在路一出现
 function genReward() { G.reward = rollFrom(CARDS, 3, grand, CONFIG.shop.rarity, key => p1Only(CARDS[key])); }
 function pickReward(i) { if (i != null && G.reward[i]) G.deck.push(G.reward[i]); G.reward = null; afterFloor(); }
-function genShop(keepRefresh) {   // 命运牌、黑幕牌、星辰牌一个大卡池（无封顶路线里还混着撤离通行证）；勇者单独一格
+function genShop(keepRefresh) {   // 命运牌、黑幕牌、星辰牌一个大卡池（亡命徒路线里还混着撤离通行证）；勇者单独一格
   const sc = CONFIG.shop, items = [], taken = (type, key) => items.some(x => x.type === type && x.key === key);
   const tw = Object.assign({}, sc.typeW); if (G.path === 1 && G.floor < CONFIG.floors) tw.pass = P1().passW;
   for (let guard = 0; items.length < sc.slots && guard < 80; guard++) {
