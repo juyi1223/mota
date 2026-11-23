@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>魔塔操盘手 v0.7.5</title>
+<title>魔塔操盘手 v0.7.6</title>
 <style>
 :root { --bg:#f6f5f1; --card:#fff; --ink:#1f1f1f; --muted:#6b6b6b; --line:#e2e0da; --accent:#2f6fde; --good:#1e8a4a; --bad:#c0392b; --gold:#a8730a; --dark:#6a3fb5; }
 * { box-sizing:border-box; }
@@ -76,7 +76,7 @@ details summary { cursor:pointer; font-weight:700; }
 // 配置区：所有数值、名字、文字、图片路径都在这个文件里改
 // =====================================================================
 const CONFIG = {
-  version: "0.7.5",
+  version: "0.7.6",
   floors: 50, bossEvery: 5,
   startGold: 300, startHeroes: ["shield", "sword", "priest"], teamMax: 6, fieldMax: 3, blackSlots: 5, deckMin: 6,
   startDeck: [["strike", 4], ["guard", 3], ["mend", 2], ["oracle", 1]],
@@ -84,7 +84,7 @@ const CONFIG = {
   stages: [                                     // 庄家返还率 R、普通层赏金（×C）
     { to: 5, R: 1.05, bounty: 0.5, name: "新手期" }, { to: 20, R: 0.95, bounty: 0.3, name: "成长期" },
     { to: 35, R: 0.92, bounty: 0.3, name: "中期" }, { to: 50, R: 0.90, bounty: 0.3, name: "后期" } ],
-  bossBounty: 1, bossToll: 5,
+  bossBounty: 1.5, bossToll: 5,
   // 第 50 层三个结局。fix=世纪假赛：倍率 = R ÷ 庄家眼里勇者（没人帮）输的概率，截在 [minOdds, maxOdds]，可押全部金币
   // duel=堂堂正正：魔王按全队最强 3 人调到庄家估计胜率 duelTarget，且不低于标准魔王的 duelFloor 倍。tower=买下魔塔：价格 towerPrice×C
   finale: { R: 1.0, minOdds: 1.5, maxOdds: 10, duelTarget: 0.5, duelFloor: 0.3, towerPrice: 300 },
@@ -96,7 +96,7 @@ const CONFIG = {
   parlay: { R: 0.7, min: 1.3, max: 2.0, maxParlayer: 2.5, offer: 3 },
   script: { R: 0.8, min: 1.5, max: 6, cap: 0.25, rerollBase: 0.1, writer: 1, bard: 0.5 },
   // 复活：赢了全员免费复活；普通层输了交过路费 normalToll×C（不交则这场阵亡的勇者永久失去）；战斗中原地复活每人 inBattle×C
-  revive: { inBattle: 1.0, inBattleHp: 0.5, normalToll: 1.5, tollMonk: 0.5, tollFake: 0.5, tollComet: 0.25 },
+  revive: { inBattle: 1.0, inBattleHp: 0.5, normalToll: 1.0, tollMonk: 0.5, tollFake: 0.5, tollComet: 0.25 },
   luck: { crit: 0.10, critMul: 2, graze: 0.10, grazeMul: 0.5 },
   trapperBonus: 1.5, guillotinePct: 0.3, traitorPct: 0.2, bardBuff: 4, miserGold: 0.05,
   bossAoe: 0.6, bossShield: 0.12,
@@ -107,12 +107,12 @@ const CONFIG = {
   anim: { stepMs: 600 },
   // 怪物强度：倍率 K(f) 从 m1 起，每层乘 growth；弱怪层 = 基准数值，强怪层 = 生命 ×(1+tierHp)、攻击 ×(1+tierAtk)
   monster: { m1: 1.0, growth: [{ to: 5, g: 1.08 }, { to: 20, g: 1.12 }, { to: 35, g: 1.145 }, { to: 50, g: 1.165 }],
-    weakRate: 0.25, tutorialT: [0.5, 0.6, 0.68, 0.75], tierHp: 0.4, tierAtk: 1.0, bossScale: 1.2 },
+    weakRate: 0.3, tutorialT: [0.5, 0.6, 0.68, 0.75], tierHp: 0.4, tierAtk: 1.0, bossScale: 1.2 },
   // 养成：勇者每升 1 级，生命/攻击/治疗 ×mult；每级 cost×C；等级上限 = 当前层数。命运牌的固定数值按"层数等级"同样放大
   level: { mult: 1.12, cost: 0.05 },
   shop: { fates: 2, misc: 2, del: 0.5, refresh: 0.3, rarity: { common: 65, rare: 28, legend: 7 },
     price: { fate: { basic: 0.3, common: 0.5, rare: 1, legend: 2 }, black: { common: 1, rare: 2, legend: 3 },
-      star: { common: 0.6, rare: 1.2, legend: 2.5 }, hero: { basic: 1, common: 1.5, rare: 2.5, legend: 4 } } },
+      star: { common: 0.5, rare: 1.2, legend: 2.5 }, hero: { basic: 1, common: 1.5, rare: 2.5, legend: 4 } } },
   blackEffects: { cousin: 0.5, insurer: 0.2, fixer: 0.2, stash: 0.1, lifeins: 0.15, bitter: 0.1, gate: 0.02, comeback: 0.10 },
   hallMax: 12,
 };
@@ -224,7 +224,7 @@ const BOSS_DEEP_PREFIX = "深渊·";   // 第 30 层起的 Boss 是前面的加�
 
 const TEXT = {
   title: "魔塔操盘手",
-  subtitle: "v0.7.5 · 50 层可玩版（白盒，数值未校准）",
+  subtitle: "v0.7.6 · 50 层可玩版（白盒，第一轮校准）",
   intro: "你是腐败天神：派凡人勇者闯 50 层魔塔，在魔王的赌场押他们的输赢，再用命运牌暗中左右战斗。庄家看得见勇者和怪物，看不见你的牌、陷阱和加买的点数。",
   act: { front: "打最前面的敌人", back: "打最后面的敌人", lowest: "打血最少的敌人", heal: "给血最少的队友回血", bard: "不攻击" },
   rarity: { basic: "基础", common: "普通", rare: "稀有", legend: "传说" },
