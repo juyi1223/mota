@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>魔塔操盘手 v0.7 · 单场战斗原型</title>
+<title>魔塔操盘手 v0.7.1 · 单场战斗原型</title>
 <style>
   :root { --bg:#f6f5f1; --card:#fff; --ink:#1f1f1f; --muted:#6b6b6b; --line:#e2e0da; --accent:#2f6fde; --good:#1e8a4a; --bad:#c0392b; --gold:#a8730a; --dark:#6a3fb5; }
   * { box-sizing:border-box; }
@@ -20,23 +20,38 @@
   button:disabled { opacity:.45; cursor:not-allowed; }
   .muted { color:var(--muted); } .small { font-size:12px; } .good { color:var(--good); } .bad { color:var(--bad); } .gold { color:var(--gold); font-weight:700; }
   .units { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px; }
-  .unit { border:1px solid var(--line); border-radius:8px; padding:6px 8px; background:#fcfcfa; position:relative; }
+  .unit { border:1px solid var(--line); border-radius:8px; padding:6px 8px; background:#fcfcfa; position:relative; transition:transform .15s; }
   .unit.dead { opacity:.45; }
   .unit.boss { border-color:#b03030; background:#fff6f6; }
   .unit.tgt { outline:3px solid var(--accent); cursor:pointer; background:#eef3fd; }
-  .unit .nm { font-weight:700; }
+  .unit.acting { transform:translateY(-8px) scale(1.03); box-shadow:0 0 0 3px #f0b429; z-index:2; }
+  .unit.hit { animation:shake .35s; box-shadow:0 0 0 3px #e06a5a; }
+  .unit.healed { box-shadow:0 0 0 3px #4cb876; }
+  @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-5px)} 75%{transform:translateX(5px)} }
+  .pop { position:absolute; top:2px; right:4px; background:rgba(255,255,255,.85); border-radius:6px; padding:0 4px; font-weight:800; font-size:18px; color:var(--bad); animation:rise .9s forwards; pointer-events:none; text-shadow:0 1px 0 #fff; white-space:nowrap; }
+  .pop.heal { color:var(--good); } .pop.crit { color:#d35400; font-size:22px; } .pop.graze { color:#888; } .pop.info { color:var(--dark); font-size:14px; } .pop.dead { color:#000; }
+  @keyframes rise { 0%{opacity:0; transform:translateY(8px)} 20%{opacity:1} 100%{opacity:1; transform:translateY(-14px)} }
+  .nm { font-weight:700; }
   .hp { height:8px; background:#eee; border-radius:4px; overflow:hidden; margin:3px 0; }
-  .hp > div { height:100%; background:var(--good); }
+  .hp > div { height:100%; background:var(--good); transition:width .3s; }
   .unit.M .hp > div { background:#c0392b; }
   .tags span { display:inline-block; font-size:11px; padding:0 6px; border-radius:10px; background:#f0efeb; margin:2px 2px 0 0; }
   .tags .trap { background:#efe4fb; color:var(--dark); }
   .tags .buff { background:#e3f3e8; color:var(--good); }
   .tags .debuff { background:#fbe5e2; color:var(--bad); }
   .intent { font-size:12px; color:#8a1f1f; margin-top:2px; }
+  .intent b { font-size:13px; }
+  .pv { font-size:12px; color:var(--accent); font-weight:700; margin-top:2px; }
+  .order { display:flex; flex-wrap:wrap; gap:4px; align-items:center; font-size:12px; margin:6px 0; }
+  .order span { padding:1px 8px; border-radius:10px; background:#f0efeb; }
+  .order span.now { background:#f0b429; color:#000; font-weight:700; }
+  .order i { color:#bbb; font-style:normal; }
+  .banner { position:fixed; left:50%; top:38%; transform:translate(-50%,-50%); background:rgba(20,20,20,.88); color:#fff; font-size:24px; font-weight:800; padding:12px 26px; border-radius:12px; z-index:50; animation:bn .9s forwards; pointer-events:none; white-space:nowrap; }
+  @keyframes bn { 0%{opacity:0; transform:translate(-50%,-50%) scale(.8)} 15%{opacity:1; transform:translate(-50%,-50%) scale(1.05)} 80%{opacity:1} 100%{opacity:0} }
   .hand { display:flex; flex-wrap:wrap; gap:8px; }
   .fc { width:150px; border:2px solid var(--line); border-radius:10px; padding:6px 8px; background:#fff; cursor:pointer; }
   .fc.sel { border-color:var(--accent); background:#eef3fd; }
-  .fc.no { opacity:.45; cursor:not-allowed; }
+  .fc.no { opacity:.6; }
   .fc .cost { float:right; font-weight:700; background:#1f1f1f; color:#fff; border-radius:50%; width:22px; height:22px; text-align:center; line-height:22px; font-size:12px; }
   .fc .ty { font-size:11px; color:var(--muted); }
   .fc.trap { border-color:#c9b2ee; } .fc.dark { border-color:#e3a59d; }
@@ -51,11 +66,13 @@
   table.st tr.tot td { border-top:2px solid var(--ink); font-weight:700; font-size:15px; }
   .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:4px 0; }
   input[type=number] { width:90px; padding:5px; font:inherit; }
-  select { font:inherit; padding:4px; }
+  select { font:inherit; padding:4px; max-width:100%; }
   label.opt { display:block; padding:4px 8px; border:1px solid var(--line); border-radius:8px; margin:4px 0; cursor:pointer; }
   label.opt.on { border-color:var(--accent); background:#eef3fd; }
   .hint { background:#fff8e1; border:1px solid #f0d98a; border-radius:8px; padding:6px 10px; font-size:13px; }
-  @media (max-width:640px) { .wrap { padding:8px; } .fc { width:calc(50% - 4px); } .units { grid-template-columns:repeat(3,1fr); } .unit { padding:5px; font-size:12px; } }
+  .warn { color:#9a5b00; font-size:12px; }
+  details summary { cursor:pointer; font-weight:700; }
+  @media (max-width:640px) { .wrap { padding:8px; } .fc { width:calc(50% - 4px); } .units { grid-template-columns:repeat(3,1fr); } .unit { padding:5px; font-size:12px; } .banner { font-size:20px; } }
 </style>
 </head>
 <body>
@@ -76,57 +93,66 @@ const CONFIG = {
   live: { R: 0.85, cap: 3.0, min: 1.05 },        // 滚球
   payoutCap: 4,           // 主盘 + 滚球派彩合计 ≤ 4C
   parlay: { R: 0.7, min: 1.3, max: 2.0 },        // 加码条款倍率 = R / 条件概率，截在 [min, max]
-  script: { R: 0.8, min: 1.5, max: 6, cap: 0.25 }, // 剧本盘赔率 = R / 概率；限红 0.25C
+  script: { R: 0.8, min: 1.5, max: 6, cap: 0.25, rerollBase: 0.1 }, // 剧本盘：赔率 = R / 概率；限红 0.25C；刷新第 n 次 = 0.1C × 2^(n−1)
   bounty: { normal: 0.3, boss: 1.0 },            // 赢了才有，×C
   bossToll: 5,            // Boss 层战败的过路费 ×C
   revive: { inBattle: 1.0, after: 0.5, inBattleHp: 0.5 },
+  luck: { crit: 0.10, critMul: 2, graze: 0.10, grazeMul: 0.5 }, // 每次攻击：10% 暴击 ×2，10% 打偏 ×0.5（双方都有，回血不受影响）
+  mineDmg: 10,
   escalateFrom: 8,        // 第 8 回合起伤害每回合翻倍
   maxRounds: 15,          // 超过算勇者输
-  bookieSims: 300,        // 庄家推演次数
+  bookieSims: 300,        // 庄家推演次数（"帮忙"和"不管"各推这么多次）
   liveSims: 200,
+  anim: { stepMs: 650 },  // 战斗演出每一步的时间（毫秒）
   bookieGod: { points: [2, 3, 3, 4], atk: 6, shield: 8, heal: 10 }, // 庄家假想的"普通天神"
   heroes: [
-    { id: "shield", name: "盾卫", hp: 60, atk: 4, act: "front", invest: 100 },
-    { id: "sword",  name: "剑士", hp: 45, atk: 8, act: "front", invest: 100 },
-    { id: "priest", name: "牧师", hp: 32, atk: 0, heal: 12, act: "heal", invest: 100 },
-    { id: "rogue",  name: "刺客", hp: 30, atk: 10, act: "back", invest: 100 },
-    { id: "mage",   name: "法师", hp: 28, atk: 7, act: "lowest", invest: 100 },
-    { id: "martyr", name: "殉道者", hp: 50, atk: 5, act: "front", invest: 250, skill: "martyr" },
+    { id: "shield", name: "盾卫", hp: 60, atk: 4, act: "front", invest: 100, img: "" },
+    { id: "sword",  name: "剑士", hp: 45, atk: 8, act: "front", invest: 100, img: "" },
+    { id: "priest", name: "牧师", hp: 32, atk: 0, heal: 12, act: "heal", invest: 100, img: "" },
+    { id: "rogue",  name: "刺客", hp: 30, atk: 10, act: "back", invest: 100, img: "" },
+    { id: "mage",   name: "法师", hp: 28, atk: 7, act: "lowest", invest: 100, img: "" },
+    { id: "martyr", name: "殉道者", hp: 50, atk: 5, act: "front", invest: 250, skill: "martyr", img: "" },
   ],
   defaultLineup: ["shield", "sword", "priest"],
   monsters: {
     normal: [ { name: "骷髅兵", hp: 42, atk: 20 }, { name: "史莱姆", hp: 52, atk: 15 }, { name: "哥布林", hp: 34, atk: 21 } ],
+    weak:   [ { name: "骷髅兵", hp: 32, atk: 11 }, { name: "史莱姆", hp: 40, atk: 8 }, { name: "哥布林", hp: 26, atk: 12 } ], // 弱怪层：勇者自己就能赢
     boss:   [ { name: "魔王监工", hp: 155, atk: 27, boss: true, pattern: ["attack", "attack", "charge", "smash"] }, { name: "小鬼", hp: 30, atk: 12 } ],
   },
-  // 测试牌库（20 张）
-  deck: [["strike", 2], ["guard", 2], ["mend", 2], ["oracle", 1], ["rage", 2], ["slip", 1], ["doze", 1], ["weaken", 1], ["soulswap", 1],
-         ["tripwire", 1], ["mine", 1], ["guillotine", 1], ["fakedeath", 1], ["holyfool", 1], ["taunt", 1], ["lastgasp", 1]],
-  // target: unit=任一单位（Boss 除外） hero=勇者 monster=怪物（Boss 除外） trapMonster=怪物（含 Boss） heroThenMonster=先选勇者再选怪物 priest=会治疗的勇者 none=不用选
+  decks: {
+    test: [["strike", 2], ["guard", 2], ["mend", 2], ["oracle", 1], ["rage", 2], ["slip", 1], ["doze", 1], ["weaken", 1], ["soulswap", 1],
+           ["tripwire", 1], ["mine", 1], ["guillotine", 1], ["fakedeath", 1], ["holyfool", 1], ["taunt", 1], ["lastgasp", 1]],
+    base: [["strike", 4], ["guard", 3], ["mend", 2], ["oracle", 1]],
+  },
+  // target: unit=任一单位（Boss 除外） hero=勇者 trapMonster=怪物（含 Boss） any=任一单位（含 Boss） heroThenMonster=先选勇者再选怪物 priest=会治疗的勇者 none=不用选
   cards: {
-    strike:     { name: "强攻",     cost: 1, ty: "基础",       target: "unit",  desc: "一个单位本回合攻击 +6" },
-    guard:      { name: "守护",     cost: 1, ty: "基础",       target: "unit",  desc: "一个单位本回合护盾 +8" },
-    mend:       { name: "治愈",     cost: 1, ty: "基础",       target: "unit",  desc: "一个单位回复 10 生命" },
-    oracle:     { name: "神谕",     cost: 0, ty: "基础",       target: "none",  desc: "抽 2 张牌" },
-    rage:       { name: "狂暴药水", cost: 1, ty: "暗箱",       target: "unit",  desc: "一个单位本回合攻击 ×2（给怪物用 = 放水）" },
-    slip:       { name: "手滑",     cost: 0, ty: "暗箱",       target: "hero",  desc: "一名勇者本回合改打相邻队友" },
-    doze:       { name: "打瞌睡",   cost: 1, ty: "暗箱",       target: "unit",  desc: "一个单位本回合不行动" },
-    weaken:     { name: "虚弱诅咒", cost: 1, ty: "暗箱",       target: "unit",  desc: "一个单位本回合攻击 −50%" },
-    soulswap:   { name: "灵魂互换", cost: 2, ty: "暗箱",       target: "heroThenMonster", desc: "交换一名勇者和一个怪物的当前生命（不超过各自上限）" },
-    tripwire:   { name: "绊马索",   cost: 1, ty: "陷阱",       target: "hero",  desc: "埋在一名勇者面前：第一个来打他的敌人摔倒，这次攻击作废（Boss 也会中）" },
-    mine:       { name: "地雷",     cost: 1, ty: "陷阱",       target: "none",  desc: "下一个被攻击的单位（不分敌我）额外受 15 伤害" },
-    guillotine: { name: "断头台",   cost: 2, ty: "陷阱",       target: "trapMonster", desc: "埋给一个敌人（可以是 Boss）：它生命降到 30% 以下时立即处决" },
-    fakedeath:  { name: "假死机关", cost: 1, ty: "陷阱",       target: "hero",  desc: "埋给一名勇者：他下次阵亡算阵亡，但战后免费复活" },
-    holyfool:   { name: "圣愚之光", cost: 2, ty: "剧本",       target: "priest", desc: "牧师本回合改为攻击最前面的敌人，伤害 = 治疗量 × 2" },
-    taunt:      { name: "嘲讽号角", cost: 1, ty: "功能",       target: "hero",  desc: "本回合所有敌人只打这名勇者" },
-    lastgasp:   { name: "回光返照", cost: 2, ty: "复活",       target: "none",  desc: "本回合阵亡的勇者以 1 生命免费原地复活" },
+    strike:     { name: "强攻",     cost: 1, ty: "基础", target: "unit",  desc: "一个单位本回合攻击 +6" },
+    guard:      { name: "守护",     cost: 1, ty: "基础", target: "unit",  desc: "一个单位本回合护盾 +8" },
+    mend:       { name: "治愈",     cost: 1, ty: "基础", target: "unit",  desc: "一个单位回复 10 生命" },
+    oracle:     { name: "神谕",     cost: 0, ty: "基础", target: "none",  desc: "抽 2 张牌" },
+    rage:       { name: "狂暴药水", cost: 1, ty: "暗箱", target: "unit",  desc: "一个单位本回合攻击 ×2（给怪物用 = 放水）" },
+    slip:       { name: "手滑",     cost: 0, ty: "暗箱", target: "hero",  desc: "一名勇者本回合打到相邻队友；牧师会把血奶给怪物" },
+    doze:       { name: "打瞌睡",   cost: 1, ty: "暗箱", target: "unit",  desc: "一个单位本回合不行动" },
+    weaken:     { name: "虚弱诅咒", cost: 1, ty: "暗箱", target: "unit",  desc: "一个单位本回合攻击 −50%" },
+    soulswap:   { name: "灵魂互换", cost: 2, ty: "暗箱", target: "heroThenMonster", desc: "交换一名勇者和一个怪物的当前生命（不超过各自上限）" },
+    tripwire:   { name: "绊马索",   cost: 1, ty: "陷阱", target: "hero",  desc: "埋在一名勇者面前：第一个来打他的敌人摔倒，这次攻击作废（Boss 也会中）" },
+    mine:       { name: "地雷",     cost: 1, ty: "陷阱", target: "any",   desc: "埋在任意单位脚下（敌我都行，Boss 也行）：它下次挨打时额外受 10 伤害" },
+    guillotine: { name: "断头台",   cost: 2, ty: "陷阱", target: "trapMonster", desc: "埋给一个敌人（可以是 Boss）：它生命降到 30% 以下时立即处决" },
+    fakedeath:  { name: "假死机关", cost: 1, ty: "陷阱", target: "hero",  desc: "埋给一名勇者：他下次阵亡算阵亡，但战后免费复活" },
+    holyfool:   { name: "圣愚之光", cost: 2, ty: "剧本", target: "priest", desc: "牧师本回合改为攻击最前面的敌人，伤害 = 治疗量 × 2" },
+    taunt:      { name: "嘲讽号角", cost: 1, ty: "功能", target: "hero",  desc: "本回合所有敌人只打这名勇者" },
+    lastgasp:   { name: "回光返照", cost: 2, ty: "复活", target: "none",  desc: "本回合阵亡的勇者以 1 生命免费原地复活" },
   },
 };
 const TEXT = {
-  title: "魔塔操盘手 v0.7 · 单场战斗原型",
+  title: "魔塔操盘手 v0.7.1 · 单场战斗原型",
   modeNormal: "普通层（可押赢 / 押输）", modeBoss: "Boss 层（只能押赢）",
   restart: "重开（新种子）", rehand: "换随机手牌",
   intro: "你是腐败天神：先押勇者的输赢，再用命运牌暗中左右战斗。庄家看得见勇者和怪物，看不见你的牌库、你埋的陷阱、你会加买几个点。",
   bossNote: "Boss 免疫直接指向它的牌，但会触发陷阱（绊马索、地雷、断头台）。",
+  luckNote: "运气：每次攻击（双方都算）10% 暴击伤害 ×2，10% 打偏伤害减半。回血不受影响。",
+  foeStrong: "强怪（勇者要靠天神帮忙才能赢）", foeWeak: "弱怪（勇者自己就能赢，押输得亲手坑）",
+  deckTest: "测试牌组（20 张，各种黑心牌）", deckBase: "开局基础牌组（10 张：强攻×4 守护×3 治愈×2 神谕×1）",
 };
 
 // =====================================================================
@@ -140,17 +166,20 @@ const pick = (r, a) => a[Math.floor(r() * a.length)];
 function shuffle(r, a) { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 const C = () => CONFIG.C;
 const down10 = x => Math.max(0, Math.floor(x / 10) * 10);
+const up10 = x => Math.ceil(x / 10) * 10;
+const hash = s => { let h = 2166136261; for (const ch of s) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // =====================================================================
 // 战斗引擎（真实战斗和庄家推演共用）
 // =====================================================================
-function makeBattle(mode, lineupIds) {
+function makeBattle(mode, lineupIds, setKey) {
   const units = [];
   lineupIds.forEach((id, i) => {
     const d = CONFIG.heroes.find(h => h.id === id);
     units.push({ uid: "H" + i, side: "H", id, name: d.name, maxHp: d.hp, hp: d.hp, atk: d.atk, heal: d.heal || 0, act: d.act, pos: i, dead: false, fake: false, invest: d.invest, skill: d.skill || null });
   });
-  CONFIG.monsters[mode].forEach((m, i) => units.push({ uid: "M" + i, side: "M", name: m.name, maxHp: m.hp, hp: m.hp, atk: m.atk, pos: i, dead: false, boss: !!m.boss, pattern: m.pattern || null }));
+  CONFIG.monsters[setKey || mode].forEach((m, i) => units.push({ uid: "M" + i, side: "M", name: m.name, maxHp: m.hp, hp: m.hp, atk: m.atk, pos: i, dead: false, boss: !!m.boss, pattern: m.pattern || null }));
   return { mode, units, round: 1, traps: [], temp: {}, taunt: null, lastGasp: false, martyrBoost: false, winner: null,
     flags: { anyDeath: false, priestActed: false, lastKiller: null, bossByTrap: false, endRound: null, deaths: 0 }, intents: {}, log: [] };
 }
@@ -161,6 +190,8 @@ const aliveM = b => monsters(b).filter(u => !u.dead).sort((a, c) => a.pos - c.po
 const T = (b, u) => (b.temp[u.uid] = b.temp[u.uid] || { atkAdd: 0, atkMul: 1, shield: 0, sleep: false, slip: false, holy: false });
 const unitById = (b, uid) => b.units.find(u => u.uid === uid);
 const trapOn = (b, kind, uid) => b.traps.find(t => t.kind === kind && t.on === uid);
+const FR = (b, f) => { if (b.frame) b.frame(f); };  // 只有真实战斗会录演出帧
+const escOf = b => b.round >= CONFIG.escalateFrom ? Math.pow(2, b.round - CONFIG.escalateFrom + 1) : 1;
 
 function computeIntents(b) {
   b.intents = {};
@@ -168,8 +199,8 @@ function computeIntents(b) {
   for (const m of aliveM(b)) {
     if (m.boss) {
       const k = m.pattern[(b.round - 1) % m.pattern.length];
-      b.intents[m.uid] = k === "charge" ? { kind: "charge" } : { kind: k, dmg: k === "smash" ? m.atk * 2 : m.atk, target: front && front.uid };
-    } else b.intents[m.uid] = { kind: "attack", dmg: m.atk, target: front && front.uid };
+      b.intents[m.uid] = k === "charge" ? { kind: "charge" } : { kind: k, target: front && front.uid };
+    } else b.intents[m.uid] = { kind: "attack", target: front && front.uid };
   }
 }
 function atkValue(b, u) {
@@ -178,6 +209,9 @@ function atkValue(b, u) {
   if (u.side === "H" && b.martyrBoost) a *= 2;
   return Math.max(0, Math.round(a));
 }
+function rollLuck(rng) { const x = rng(); return x < CONFIG.luck.crit ? "crit" : x >= 1 - CONFIG.luck.graze ? "graze" : ""; }
+const luckDmg = (d, k) => Math.round(k === "crit" ? d * CONFIG.luck.critMul : k === "graze" ? d * CONFIG.luck.grazeMul : d);
+const luckWord = k => k === "crit" ? "暴击！" : k === "graze" ? "打偏了" : "";
 function checkEnd(b) {
   if (b.winner) return true;
   if (aliveM(b).length === 0) { b.winner = "H"; b.flags.endRound = b.round; return true; }
@@ -185,54 +219,67 @@ function checkEnd(b) {
   return false;
 }
 function heroDown(b, h, L) {
-  if (b.lastGasp && !h.gasped) { h.hp = 1; h.gasped = true; L(`回光返照！${h.name} 以 1 生命站了起来`, "t"); return; }
+  if (b.lastGasp && !h.gasped) { h.hp = 1; h.gasped = true; L(`回光返照！${h.name} 以 1 生命站了起来`, "t"); FR(b, { target: h.uid, pop: "1 血站起", popCls: "heal", banner: "回光返照！" }); return; }
   const fd = trapOn(b, "fakedeath", h.uid);
   if (fd) { b.traps.splice(b.traps.indexOf(fd), 1); h.fake = true; L(`假死机关触发：${h.name} "阵亡"了（战后免费复活）`, "t"); }
   h.dead = true; h.hp = 0; b.flags.anyDeath = true; b.flags.deaths++;
   L(`${h.name} 阵亡`, "x");
-  if (h.skill === "martyr") { b.martyrBoost = true; L(`殉道者倒下，本回合全队攻击 ×2`, "t"); }
+  FR(b, { target: h.uid, pop: h.fake ? "假死" : "阵亡", popCls: "dead", banner: h.fake ? "假死机关！" : null });
+  if (h.skill === "martyr") { b.martyrBoost = true; L(`殉道者倒下，本回合全队攻击 ×2`, "t"); FR(b, { banner: "殉道者倒下！全队攻击 ×2" }); }
 }
-function hit(b, src, tgt, dmg, L) {
+function hit(b, src, tgt, dmg, L, k, banner) {
   let trapPart = 0;
-  const mine = b.traps.find(t => t.kind === "mine");
-  if (mine) { b.traps.splice(b.traps.indexOf(mine), 1); dmg += 15; trapPart = 15; L(`地雷爆炸！${tgt.name} 额外受 15 伤害`, "t"); }
+  const mine = trapOn(b, "mine", tgt.uid);
+  if (mine) { b.traps.splice(b.traps.indexOf(mine), 1); dmg += CONFIG.mineDmg; trapPart = CONFIG.mineDmg; banner = "地雷！"; }
   const t = T(b, tgt);
   const absorbed = Math.min(t.shield, dmg); t.shield -= absorbed;
   const real = dmg - absorbed;
   const before = tgt.hp;
   tgt.hp -= real;
-  L(`${src.name} → ${tgt.name}：${dmg} 伤害${absorbed ? `（护盾挡 ${absorbed}）` : ""}，剩 ${Math.max(0, tgt.hp)}`);
+  L(`${src.name} → ${tgt.name}：${dmg} 伤害${k ? `（${luckWord(k)}）` : ""}${trapPart ? `（含地雷 ${trapPart}）` : ""}${absorbed ? `（护盾挡 ${absorbed}）` : ""}，剩 ${Math.max(0, tgt.hp)}`, trapPart ? "t" : "");
+  FR(b, { actor: src.uid, target: tgt.uid, pop: `−${real}${k ? " " + luckWord(k) : ""}${absorbed ? `（挡${absorbed}）` : ""}`, popCls: k || "", banner });
   if (tgt.side === "M") {
     if (tgt.hp <= 0) {
       tgt.dead = true; tgt.hp = 0; b.flags.lastKiller = src.uid;
       if (tgt.boss) b.flags.bossByTrap = trapPart > 0 && before - (real - trapPart) > 0;
       L(`${tgt.name} 被击倒`, "x");
+      FR(b, { target: tgt.uid, pop: "击倒", popCls: "dead" });
     } else {
       const g = trapOn(b, "guillotine", tgt.uid);
       if (g && tgt.hp <= tgt.maxHp * 0.3) {
         b.traps.splice(b.traps.indexOf(g), 1); tgt.hp = 0; tgt.dead = true; b.flags.lastKiller = "trap";
         if (tgt.boss) b.flags.bossByTrap = true;
         L(`断头台落下！${tgt.name} 被处决`, "t");
+        FR(b, { target: tgt.uid, pop: "处决", popCls: "dead", banner: "断头台！处决！" });
       }
     }
   } else if (tgt.hp <= 0) heroDown(b, tgt, L);
 }
 function resolveRound(b, rng, L) {
-  const esc = b.round >= CONFIG.escalateFrom ? Math.pow(2, b.round - CONFIG.escalateFrom + 1) : 1;
-  if (esc > 1) L(`拖太久了：本回合伤害 ×${esc}`, "x");
+  const esc = escOf(b);
+  if (esc > 1) { L(`拖太久了：本回合伤害 ×${esc}`, "x"); FR(b, { banner: `拖太久了！伤害 ×${esc}` }); }
   for (const h of aliveH(b)) {
     if (h.dead || checkEnd(b)) continue;
     const t = T(b, h);
-    if (t.sleep) { L(`${h.name} 在打瞌睡`); continue; }
+    if (t.sleep) { L(`${h.name} 在打瞌睡`); FR(b, { actor: h.uid, target: h.uid, pop: "Zzz", popCls: "info" }); continue; }
     if (h.act === "heal" && !t.holy) {
+      b.flags.priestActed = true;
+      if (t.slip && aliveM(b).length) {
+        const tg = aliveM(b).slice().sort((a, c) => a.hp / a.maxHp - c.hp / c.maxHp)[0];
+        const amt = Math.min(h.heal, tg.maxHp - tg.hp); tg.hp += amt;
+        L(`${h.name} 手滑了！给 ${tg.name} 回血 ${amt}，现在 ${tg.hp}`, "t");
+        FR(b, { actor: h.uid, target: tg.uid, pop: `+${amt}`, popCls: "heal", banner: "手滑！奶错人了" });
+        continue;
+      }
       const tg = aliveH(b).slice().sort((a, c) => a.hp / a.maxHp - c.hp / c.maxHp)[0];
       const amt = Math.min(h.heal, tg.maxHp - tg.hp);
-      tg.hp += amt; b.flags.priestActed = true;
+      tg.hp += amt;
       L(`${h.name} 给 ${tg.name} 回血 ${amt}，现在 ${tg.hp}`);
+      FR(b, { actor: h.uid, target: tg.uid, pop: `+${amt}`, popCls: "heal" });
       continue;
     }
-    let tg, dmg;
-    if (h.act === "heal") { b.flags.priestActed = true; tg = aliveM(b)[0]; dmg = h.heal * 2 * esc; }
+    let tg, dmg, banner = null;
+    if (h.act === "heal") { b.flags.priestActed = true; tg = aliveM(b)[0]; dmg = h.heal * 2 * esc; banner = "圣愚之光！"; }
     else {
       const ms = aliveM(b);
       tg = h.act === "back" ? ms[ms.length - 1] : h.act === "lowest" ? ms.slice().sort((a, c) => a.hp - c.hp)[0] : ms[0];
@@ -241,24 +288,26 @@ function resolveRound(b, rng, L) {
     if (t.slip) {
       const team = aliveH(b).filter(x => x !== h);
       const adj = team.sort((a, c) => Math.abs(a.pos - h.pos) - Math.abs(c.pos - h.pos))[0];
-      if (adj) { L(`${h.name} 手滑了！`, "t"); tg = adj; }
+      if (adj) { L(`${h.name} 手滑了！`, "t"); tg = adj; banner = "手滑！砍到队友"; }
     }
-    if (!tg || dmg <= 0) { if (dmg <= 0) L(`${h.name} 没造成伤害`); continue; }
-    hit(b, h, tg, dmg, L);
+    if (!tg || dmg <= 0) { L(`${h.name} 没造成伤害`); FR(b, { actor: h.uid, target: h.uid, pop: "没伤害", popCls: "info" }); continue; }
+    const k = rollLuck(rng);
+    hit(b, h, tg, luckDmg(dmg, k), L, k, banner);
     checkEnd(b);
   }
   for (const m of aliveM(b)) {
     if (m.dead || checkEnd(b)) continue;
-    const t = T(b, m), it = b.intents[m.uid] || { kind: "attack", dmg: m.atk };
-    if (t.sleep) { L(`${m.name} 在打瞌睡`); continue; }
-    if (it.kind === "charge") { L(`${m.name} 正在蓄力……`); continue; }
+    const t = T(b, m), it = b.intents[m.uid] || { kind: "attack" };
+    if (t.sleep) { L(`${m.name} 在打瞌睡`); FR(b, { actor: m.uid, target: m.uid, pop: "Zzz", popCls: "info" }); continue; }
+    if (it.kind === "charge") { L(`${m.name} 正在蓄力……`); FR(b, { actor: m.uid, target: m.uid, pop: "蓄力…", popCls: "info" }); continue; }
     const taunter = b.taunt && unitById(b, b.taunt);
     const tg = taunter && !taunter.dead ? taunter : aliveH(b)[0];
     if (!tg) break;
     const tw = trapOn(b, "tripwire", tg.uid);
-    if (tw) { b.traps.splice(b.traps.indexOf(tw), 1); L(`绊马索！${m.name} 摔倒了，这次攻击作废`, "t"); continue; }
-    const dmg = Math.round(atkValue(b, m) * (it.kind === "smash" ? 2 : 1)) * esc;
-    hit(b, m, tg, dmg, L);
+    if (tw) { b.traps.splice(b.traps.indexOf(tw), 1); L(`绊马索！${m.name} 摔倒了，这次攻击作废`, "t"); FR(b, { actor: m.uid, target: tg.uid, pop: "摔倒", popCls: "info", banner: "绊马索！" }); continue; }
+    const k = rollLuck(rng);
+    const dmg = luckDmg(atkValue(b, m) * (it.kind === "smash" ? 2 : 1) * esc, k);
+    hit(b, m, tg, dmg, L, k, it.kind === "smash" ? "重击！" : null);
     checkEnd(b);
   }
   b.temp = {}; b.taunt = null; b.lastGasp = false; b.martyrBoost = false;
@@ -272,28 +321,30 @@ function bookieGod(b, r) {
   const pts = pick(r, g.points);
   for (let i = 0; i < pts; i++) {
     const hurt = hs.filter(h => h.hp < h.maxHp * 0.7);
-    const opts = ["atk", "shield"].concat(hurt.length ? ["heal"] : []);
-    const k = pick(r, opts);
+    const k = pick(r, ["atk", "shield"].concat(hurt.length ? ["heal"] : []));
     if (k === "atk") { const h = hs.filter(x => x.act !== "heal").sort((a, c) => c.atk - a.atk)[0] || hs[0]; T(b, h).atkAdd += g.atk; }
     else if (k === "shield") T(b, hs[0]).shield += g.shield;
     else { const h = hurt.sort((a, c) => a.hp / a.maxHp - c.hp / c.maxHp)[0]; h.hp = Math.min(h.maxHp, h.hp + g.heal); }
   }
 }
-function cloneBattle(b) { const c = JSON.parse(JSON.stringify(b)); c.traps = []; c.log = []; return c; } // 庄家看不见陷阱
-function simulate(b, n, r) {
-  const out = [];
-  const nolog = () => {};
+function cloneBattle(b) { const c = JSON.parse(JSON.stringify(b)); c.traps = []; c.log = []; c.temp = {}; return c; } // 庄家看不见陷阱和你已经打出的牌
+// god: "help" = 天神出力帮勇者；"idle" = 天神袖手旁观
+function simulate(b, n, r, god) {
+  const out = [], nolog = () => {};
   for (let i = 0; i < n; i++) {
     const c = cloneBattle(b);
     let guard = 0;
-    while (!c.winner && guard++ < 40) { computeIntents(c); bookieGod(c, r); resolveRound(c, r, nolog); }
-    const lineupMax = heroes(c).reduce((a, h) => a + h.maxHp, 0), left = aliveH(c).reduce((a, h) => a + h.hp, 0);
-    const pr = heroes(c).find(h => h.act === "heal");
-    out.push({ win: c.winner === "H", end: c.flags.endRound, anyDeath: c.flags.anyDeath, priestActed: c.flags.priestActed,
-      priestLast: c.winner === "H" && pr && c.flags.lastKiller === pr.uid, narrow: c.winner === "H" && left <= lineupMax * 0.15,
-      martyrDied: heroes(c).some(h => h.skill === "martyr" && h.dead), bossTrap: c.flags.bossByTrap });
+    while (!c.winner && guard++ < 40) { computeIntents(c); if (god === "help") bookieGod(c, r); resolveRound(c, r, nolog); }
+    out.push(outcome(c));
   }
   return out;
+}
+function outcome(c) {
+  const lineupMax = heroes(c).reduce((a, h) => a + h.maxHp, 0), left = aliveH(c).reduce((a, h) => a + h.hp, 0);
+  const pr = heroes(c).find(h => h.act === "heal"), win = c.winner === "H";
+  return { win, end: c.flags.endRound, anyDeath: c.flags.anyDeath, priestActed: c.flags.priestActed,
+    priestLast: win && !!pr && c.flags.lastKiller === pr.uid, narrow: win && left <= lineupMax * 0.15,
+    martyrDied: heroes(c).some(h => h.skill === "martyr" && h.dead), bossTrap: c.flags.bossByTrap };
 }
 const prob = (sims, f, given = () => true) => { const g = sims.filter(given); return (g.filter(f).length + 0.5) / (g.length + 1); };
 
@@ -313,7 +364,7 @@ const SCRIPTS = {
   martyrDie:  { name: "殉道者阵亡", test: s => s.martyrDied, need: "martyr", modes: ["normal"] },
   bossTrapS:  { name: "Boss 死于陷阱", test: s => s.bossTrap, modes: ["boss"] },
 };
-const condOK = (k, lineup) => !CONDS[k].need || lineup.includes(CONDS[k].need);
+const heroName = id => CONFIG.heroes.find(h => h.id === id).name;
 
 // =====================================================================
 // 游戏状态
@@ -321,16 +372,20 @@ const condOK = (k, lineup) => !CONDS[k].need || lineup.includes(CONDS[k].need);
 let S;
 function newState(mode, seed) {
   seed = seed || Math.floor(Math.random() * 1e9);
-  const prev = S && S.mode === mode ? S.lineup : null;
-  S = { mode, seed, rng: mulberry32(seed), brng: mulberry32(seed ^ 0x9e3779b9), gold: CONFIG.startGold, goldStart: CONFIG.startGold,
-    phase: "setup", lineup: prev || CONFIG.defaultLineup.slice(), b: null, quote: null,
-    bet: { side: "win", amt: 0, parlay: null, scriptAmt: 0 }, script: null,
-    live: null, liveUsed: false, liveOdds: null, liveP: null,
-    points: 0, bought: 0, spentPoints: 0, spentRevive: 0, draw: [], discard: [], hand: [], sel: null, selStage: null, selHero: null,
-    step: "start", settle: null, lastRound: null, afterChoice: {}, err: "" };
+  const keep = S && S.mode === mode ? S.lineup : null;
+  const deckMode = S ? S.deckMode : "test", speed = S ? S.speed : 1, foe = S ? S.foe : "normal";
+  const rng = mulberry32(seed);
+  const sk = shuffle(rng, Object.keys(SCRIPTS).filter(k => SCRIPTS[k].modes.includes(mode)))[0];
+  S = { mode, seed, rng, gold: CONFIG.startGold, goldStart: CONFIG.startGold, deckMode, speed, foe,
+    phase: "setup", lineup: keep || CONFIG.defaultLineup.slice(), b: null, quote: null, sims: null,
+    bet: { side: "win", amt: 0, parlay: null, scriptAmt: 0 }, scriptKey: sk, script: null, rerolls: 0, spentReroll: 0,
+    live: null, liveUsed: false, liveOdds: null, liveP: null, liveGod: null, liveThisRound: false,
+    points: 0, bought: 0, spentPoints: 0, spentRevive: 0, draw: [], discard: [], hand: [], sel: null, selStage: null, selHero: null, buyOffer: null,
+    step: "start", settle: null, lastRound: null, afterChoice: {}, tollChoice: null, err: "",
+    anim: false, frame: null, skip: false, showTemp: null, showTaunt: null };
   render();
 }
-function buildDeck() { const d = []; for (const [id, n] of CONFIG.deck) for (let i = 0; i < n; i++) d.push(id); return shuffle(S.rng, d); }
+function buildDeck() { const d = []; for (const [id, n] of CONFIG.decks[S.deckMode]) for (let i = 0; i < n; i++) d.push(id); return shuffle(S.rng, d); }
 function drawCards(n) {
   for (let i = 0; i < n; i++) {
     if (!S.draw.length) { if (!S.discard.length) return; S.draw = shuffle(S.rng, S.discard); S.discard = []; }
@@ -338,33 +393,54 @@ function drawCards(n) {
   }
 }
 const L = (txt, cls) => S.b.log.push({ txt, cls });
+const foeKey = () => S.mode === "boss" ? "boss" : S.foe;
 
+function quoteScript() {
+  const sc = SCRIPTS[S.scriptKey];
+  if (sc.need && !S.lineup.includes(sc.need)) { S.script = { key: S.scriptKey, name: sc.name, blocked: heroName(sc.need) }; S.bet.scriptAmt = 0; return; }
+  const p = Math.max(prob(S.sims.help, sc.test), prob(S.sims.idle, sc.test)); // 庄家按两种情况里更容易发生的那种算
+  S.script = { key: S.scriptKey, name: sc.name, p, odds: +clamp(CONFIG.script.R / p, CONFIG.script.min, CONFIG.script.max).toFixed(2) };
+}
 function openBook() {
-  const b = makeBattle(S.mode, S.lineup);
-  const sims = simulate(b, CONFIG.bookieSims, S.brng);
-  const pW = prob(sims, s => s.win);
-  const pc = clamp(pW, CONFIG.pClamp[0], CONFIG.pClamp[1]);
+  const b = makeBattle(S.mode, S.lineup, foeKey());
+  const r = mulberry32(S.seed ^ hash(S.lineup.join(",") + foeKey()));   // 同一阵容回来，报价不变
+  const help = simulate(b, CONFIG.bookieSims, r, "help"), idle = simulate(b, CONFIG.bookieSims, r, "idle");
+  S.sims = { help, idle };
+  const pHelp = prob(help, s => s.win), pIdle = prob(idle, s => s.win);
+  const pcW = clamp(pHelp, CONFIG.pClamp[0], CONFIG.pClamp[1]);
+  const pcL = clamp(1 - pIdle, CONFIG.pClamp[0], CONFIG.pClamp[1]);
   const conds = {};
   for (const k of Object.keys(CONDS)) {
-    if (!condOK(k, S.lineup)) continue;
+    if (CONDS[k].need && !S.lineup.includes(CONDS[k].need)) continue;
     if (k === "bossTrap" && S.mode !== "boss") continue;
     if (k === "fast3" && S.mode === "boss") continue;
     if (k === "fast4" && S.mode !== "boss") continue;
     conds[k] = {};
     for (const side of CONDS[k].sides) {
+      const sims = side === "win" ? help : idle;
       const p = prob(sims, CONDS[k].test, s => s.win === (side === "win"));
       conds[k][side] = +clamp(CONFIG.parlay.R / p, CONFIG.parlay.min, CONFIG.parlay.max).toFixed(2);
     }
   }
-  const sk = shuffle(S.rng, Object.keys(SCRIPTS).filter(k => SCRIPTS[k].modes.includes(S.mode) && (!SCRIPTS[k].need || S.lineup.includes(SCRIPTS[k].need))))[0];
-  const ps = prob(sims, SCRIPTS[sk].test);
-  S.script = { key: sk, name: SCRIPTS[sk].name, p: ps, odds: +clamp(CONFIG.script.R / ps, CONFIG.script.min, CONFIG.script.max).toFixed(2) };
-  S.quote = { pW, pc, oddsWin: +(CONFIG.R / pc).toFixed(2), oddsLose: +(CONFIG.R / (1 - pc)).toFixed(2), conds };
-  S.b = b; S.phase = "bet"; S.bet = { side: "win", amt: down10(C() / 2), parlay: null, scriptAmt: 0 };
+  S.quote = { pHelp, pIdle, pcW, pcL, oddsWin: +(CONFIG.R / pcW).toFixed(2), oddsLose: +(CONFIG.R / pcL).toFixed(2), conds };
+  quoteScript();
+  S.b = b; S.phase = "bet";
+  if (S.mode === "boss") S.bet.side = "win";
+  if (!S.bet.amt) S.bet.amt = down10(C() / 2);
+  if (S.bet.parlay && !conds[S.bet.parlay]) S.bet.parlay = null;
 }
+function rerollPrice() { return Math.round(CONFIG.script.rerollBase * C() * Math.pow(2, S.rerolls)); }
+function rerollScript() {
+  const p = rerollPrice(); if (S.gold < p) return err("金币不够");
+  S.gold -= p; S.spentReroll += p; S.rerolls++;
+  const opts = Object.keys(SCRIPTS).filter(k => SCRIPTS[k].modes.includes(S.mode) && k !== S.scriptKey);
+  S.scriptKey = pick(S.rng, opts); S.bet.scriptAmt = 0; quoteScript(); S.err = ""; render();
+}
+const capTotal = () => CONFIG.payoutCap * C();
 function startFight() {
   const bt = S.bet, side = S.mode === "boss" ? "win" : bt.side;
   bt.side = side;
+  if (S.script.blocked) bt.scriptAmt = 0;
   const stake = bt.amt + bt.scriptAmt;
   if (bt.amt % 10 || bt.scriptAmt % 10 || bt.amt < 0 || bt.scriptAmt < 0) return err("押注要是 10 的倍数");
   if (bt.amt > C()) return err(`主盘最多 ${fmt(C())} G`);
@@ -377,66 +453,87 @@ function startFight() {
   S.phase = "battle"; S.err = "";
   L(`—— 开战 ——`, "r");
   beginRound();
+  return true;
 }
 function err(m) { S.err = m; render(); return false; }
 function liveEligible() { return S.bet.amt > 0 && !S.bet.parlay && !S.liveUsed; }
+function liveQuote() {
+  const god = S.bet.side === "win" ? "help" : "idle";
+  const sims = simulate(S.b, CONFIG.liveSims, mulberry32(S.seed ^ S.b.round * 7919), god);
+  const p = prob(sims, s => s.win);
+  S.liveP = p; S.liveGod = god;
+  const ps = S.bet.side === "win" ? p : 1 - p;
+  S.liveOdds = +clamp(CONFIG.live.R / ps, CONFIG.live.min, CONFIG.live.cap).toFixed(2);
+}
+function liveRoom() { // 滚球最多还能派多少才到 4C 封顶
+  const mainMax = Math.floor(S.bet.amt * S.bet.odds * S.bet.mult);
+  return Math.max(0, capTotal() - mainMax);
+}
 function beginRound() {
   const b = S.b;
   computeIntents(b);
-  S.points = CONFIG.basePoints; S.bought = 0; S.sel = null; S.selStage = null;
+  S.points = CONFIG.basePoints; S.bought = 0; S.sel = null; S.selStage = null; S.buyOffer = null; S.liveThisRound = false;
   S.discard.push(...S.hand); S.hand = []; drawCards(CONFIG.handSize);
   L(`第 ${b.round} 回合`, "r");
   const deadNow = heroes(b).some(h => h.dead);
-  if (liveEligible()) {
-    const sims = simulate(b, CONFIG.liveSims, S.brng);
-    const p = prob(sims, s => s.win);
-    S.liveP = p;
-    const ps = S.bet.side === "win" ? p : 1 - p;
-    S.liveOdds = +clamp(CONFIG.live.R / ps, CONFIG.live.min, CONFIG.live.cap).toFixed(2);
-  }
+  if (liveEligible()) liveQuote();
   S.step = (deadNow || liveEligible()) ? "start" : "play";
-  if (S.step === "start" && !deadNow && !liveEligible()) S.step = "play";
 }
 function reviveInBattle(uid) {
+  if (S.liveThisRound) return err("已经追加了滚球，本回合不能再原地复活");
   const h = unitById(S.b, uid), cost = Math.round(h.invest * CONFIG.revive.inBattle);
   if (S.gold < cost) return err("金币不够");
   S.gold -= cost; S.spentRevive += cost;
   h.dead = false; h.fake = false; h.hp = Math.round(h.maxHp * CONFIG.revive.inBattleHp);
   L(`花 ${fmt(cost)} G 原地复活 ${h.name}（${h.hp} 生命）`, "t");
-  if (liveEligible()) { const sims = simulate(S.b, CONFIG.liveSims, S.brng); const p = prob(sims, s => s.win); S.liveP = p; const ps = S.bet.side === "win" ? p : 1 - p; S.liveOdds = +clamp(CONFIG.live.R / ps, CONFIG.live.min, CONFIG.live.cap).toFixed(2); }
-  render();
+  computeIntents(S.b);
+  if (liveEligible()) liveQuote();
+  S.err = ""; render();
 }
 function placeLive(amt) {
   if (amt % 10 || amt <= 0) return err("追加金额要是 10 的倍数");
   if (amt > S.bet.amt) return err("追加不能超过战前主盘");
   if (amt > S.gold) return err("金币不够");
-  S.gold -= amt; S.live = { amt, odds: S.liveOdds }; S.liveUsed = true;
+  S.gold -= amt; S.live = { amt, odds: S.liveOdds }; S.liveUsed = true; S.liveThisRound = true;
   L(`滚球追加：押勇者${S.bet.side === "win" ? "赢" : "输"} ${fmt(amt)} G，赔率 ${S.liveOdds}`, "t");
-  S.step = "play"; S.err = ""; render();
+  S.err = ""; render();
 }
-const buyPrice = () => Math.round(CONFIG.buyBase * C() * Math.pow(2, S.bought));
+const buyPriceAt = n => Math.round(CONFIG.buyBase * C() * Math.pow(2, n));
+const buyPrice = () => buyPriceAt(S.bought);
 function buyPoint() {
   if (S.bought >= CONFIG.maxBuy) return err("本回合最多加买 5 个");
   const p = buyPrice(); if (S.gold < p) return err("金币不够");
-  S.gold -= p; S.spentPoints += p; S.bought++; S.points++; S.err = ""; render();
+  S.gold -= p; S.spentPoints += p; S.bought++; S.points++; S.err = ""; render(); return true;
 }
 function validTarget(card, u) {
   const tg = CONFIG.cards[card].target;
   if (u.dead) return false;
   if (tg === "unit") return !u.boss;
   if (tg === "hero") return u.side === "H";
-  if (tg === "monster") return u.side === "M" && !u.boss;
   if (tg === "trapMonster") return u.side === "M";
+  if (tg === "any") return true;
   if (tg === "priest") return u.side === "H" && u.act === "heal";
   if (tg === "heroThenMonster") return S.selStage === "monster" ? (u.side === "M" && !u.boss) : u.side === "H";
   return false;
 }
 function clickCard(i) {
   const id = S.hand[i], cd = CONFIG.cards[id];
-  if (cd.cost > S.points) return err("点数不够，可以加买");
+  S.buyOffer = null;
+  if (cd.cost > S.points) {
+    const k = cd.cost - S.points;
+    if (S.bought + k > CONFIG.maxBuy) return err("点数不够，本回合也买不了那么多点");
+    let price = 0; for (let j = 0; j < k; j++) price += buyPriceAt(S.bought + j);
+    S.buyOffer = { i, k, price }; S.sel = null; S.err = ""; render(); return;
+  }
   S.err = "";
   if (cd.target === "none") { applyCard(i, null); return; }
   S.sel = S.sel === i ? null : i; S.selStage = cd.target === "heroThenMonster" ? "hero" : null; render();
+}
+function acceptBuyOffer() {
+  const o = S.buyOffer; if (!o) return;
+  if (S.gold < o.price) return err("金币不够");
+  for (let j = 0; j < o.k; j++) buyPoint();
+  S.buyOffer = null; clickCard(o.i);
 }
 function clickUnit(uid) {
   if (S.sel === null) return;
@@ -455,12 +552,12 @@ function applyCard(i, uid) {
     case "mend": { const a = Math.min(10, u.maxHp - u.hp); u.hp += a; L(`治愈 → ${u.name}：回复 ${a}`); break; }
     case "oracle": drawCards(2); L(`神谕：抽 2 张`); break;
     case "rage": t.atkMul *= 2; L(`狂暴药水 → ${u.name}：本回合攻击 ×2`, u.side === "M" ? "t" : ""); break;
-    case "slip": t.slip = true; L(`手滑 → ${u.name}：本回合会打到队友`, "t"); break;
+    case "slip": t.slip = true; L(`手滑 → ${u.name}：本回合会${u.act === "heal" ? "把血奶给怪物" : "打到队友"}`, "t"); break;
     case "doze": t.sleep = true; L(`打瞌睡 → ${u.name}：本回合不行动`, "t"); break;
     case "weaken": t.atkMul *= 0.5; L(`虚弱诅咒 → ${u.name}：本回合攻击 −50%`, "t"); break;
     case "soulswap": { const h = unitById(b, S.selHero), hpH = h.hp, hpM = u.hp; h.hp = Math.min(h.maxHp, hpM); u.hp = Math.min(u.maxHp, hpH); L(`灵魂互换：${h.name} ${hpH}→${h.hp}，${u.name} ${hpM}→${u.hp}`, "t"); S.selHero = null; break; }
     case "tripwire": b.traps.push({ kind: "tripwire", on: uid }); L(`在 ${u.name} 面前埋下绊马索`, "t"); break;
-    case "mine": b.traps.push({ kind: "mine", on: null }); L(`埋下地雷：下一个挨打的单位额外受 15 伤害`, "t"); break;
+    case "mine": b.traps.push({ kind: "mine", on: uid }); L(`在 ${u.name} 脚下埋了地雷：下次挨打额外受 ${CONFIG.mineDmg} 伤害`, "t"); break;
     case "guillotine": b.traps.push({ kind: "guillotine", on: uid }); L(`给 ${u.name} 埋下断头台`, "t"); break;
     case "fakedeath": b.traps.push({ kind: "fakedeath", on: uid }); L(`给 ${u.name} 装上假死机关`, "t"); break;
     case "holyfool": t.holy = true; L(`圣愚之光：${u.name} 本回合改为攻击`, "t"); break;
@@ -469,44 +566,100 @@ function applyCard(i, uid) {
   }
   S.selStage = null; render();
 }
-function endTurn() {
-  const from = S.b.log.length;
-  resolveRound(S.b, S.rng, L);
-  S.lastRound = S.b.log.slice(from);
-  if (S.b.winner) finish(); else beginRound();
+async function endTurn() {
+  if (S.anim) return;
+  const b = S.b, frames = [];
+  b.frame = f => frames.push(Object.assign({ snap: b.units.map(u => ({ uid: u.uid, hp: u.hp, dead: u.dead })), logLen: b.log.length }, f));
+  const from = b.log.length;
+  S.showTemp = JSON.parse(JSON.stringify(b.temp)); S.showTaunt = b.taunt; S.animRound = b.round;
+  resolveRound(b, S.rng, L);
+  b.frame = null;
+  S.lastRound = b.log.slice(from);
+  S.anim = true; S.skip = false; S.sel = null; S.buyOffer = null;
+  for (const f of frames) {
+    if (S.skip) break;
+    S.frame = f; render();
+    await sleep(CONFIG.anim.stepMs / S.speed);
+  }
+  S.anim = false; S.frame = null; S.showTemp = null; S.showTaunt = null;
+  if (b.winner) finish(); else beginRound();
   render();
-  const lg = document.querySelector(".log"); if (lg) lg.scrollTop = lg.scrollHeight;
 }
 function finish() {
-  const b = S.b, bt = S.bet, win = b.winner === "H";
-  const lineupMax = heroes(b).reduce((a, h) => a + h.maxHp, 0), left = aliveH(b).reduce((a, h) => a + h.hp, 0);
-  const pr = heroes(b).find(h => h.act === "heal");
-  const res = { win, end: b.flags.endRound, anyDeath: b.flags.anyDeath, priestActed: b.flags.priestActed,
-    priestLast: win && pr && b.flags.lastKiller === pr.uid, narrow: win && left <= lineupMax * 0.15,
-    martyrDied: heroes(b).some(h => h.skill === "martyr" && h.dead), bossTrap: b.flags.bossByTrap };
+  const b = S.b, bt = S.bet, res = outcome(b), win = res.win;
   const mainHit = bt.amt > 0 && (bt.side === "win") === win && (!bt.parlay || CONDS[bt.parlay].test(res));
   let mainPay = mainHit ? Math.floor(bt.amt * bt.odds * bt.mult) : 0;
   let livePay = S.live && (bt.side === "win") === win ? Math.floor(S.live.amt * S.live.odds) : 0;
-  const cap = CONFIG.payoutCap * C();
   let capped = 0;
-  if (mainPay + livePay > cap) { capped = mainPay + livePay - cap; const k = cap / (mainPay + livePay); mainPay = Math.floor(mainPay * k); livePay = cap - mainPay; }
+  if (mainPay + livePay > capTotal()) { capped = mainPay + livePay - capTotal(); const k = capTotal() / (mainPay + livePay); mainPay = Math.floor(mainPay * k); livePay = capTotal() - mainPay; }
   const scriptHit = bt.scriptAmt > 0 && SCRIPTS[S.script.key].test(res);
   const scriptPay = scriptHit ? Math.floor(bt.scriptAmt * S.script.odds) : 0;
   const bounty = win ? Math.round(C() * (S.mode === "boss" ? CONFIG.bounty.boss : CONFIG.bounty.normal)) : 0;
   const toll = !win && S.mode === "boss" ? Math.round(C() * CONFIG.bossToll) : 0;
-  S.gold += mainPay + livePay + scriptPay + bounty - toll;
+  S.gold += mainPay + livePay + scriptPay + bounty;   // 过路费在结算页由玩家决定，不在这里扣
   S.settle = { res, mainHit, mainPay, livePay, scriptHit, scriptPay, bounty, toll, capped };
+  S.tollChoice = toll ? (S.gold >= toll ? "pay" : "wipe") : null;
   S.afterChoice = {};
-  for (const h of heroes(b)) if (h.dead) S.afterChoice[h.uid] = h.fake || toll ? "free" : "revive";
+  let left = S.gold;
+  for (const h of heroes(b)) if (h.dead) {
+    if (h.fake) { S.afterChoice[h.uid] = "free"; continue; }
+    const c = Math.round(h.invest * CONFIG.revive.after);
+    if (left >= c) { S.afterChoice[h.uid] = "revive"; left -= c; } else S.afterChoice[h.uid] = "abandon";   // 钱不够战后复活的，默认放弃
+  }
   S.phase = "end";
   L(win ? "—— 勇者胜 ——" : "—— 勇者败 ——", "r");
 }
+function tollPaid() { return S.phase === "end" && S.tollChoice === "pay" ? S.settle.toll : 0; }
+function afterReviveCost() {
+  if (S.phase !== "end" || S.tollChoice) return 0;   // Boss 层战败：交了过路费全队免费复活；不交则团灭
+  return heroes(S.b).filter(h => h.dead && S.afterChoice[h.uid] === "revive").reduce((a, h) => a + Math.round(h.invest * CONFIG.revive.after), 0);
+}
+const goldShown = () => S.gold - afterReviveCost() - tollPaid();
 
 // =====================================================================
 // 界面
 // =====================================================================
-function unitHTML(u, b, clickable) {
-  const t = b.temp[u.uid] || {};
+function previewText(card, u) {
+  const b = S.b, t = b.temp[u.uid] || { atkAdd: 0, atkMul: 1, shield: 0 };
+  const atkNow = Math.round((u.atk + (t.atkAdd || 0)) * (t.atkMul || 1));
+  const noAtk = u.side === "H" && u.act === "heal";
+  switch (card) {
+    case "strike": return noAtk ? "牧师不攻击，加了没用" : `攻击 ${atkNow} → ${Math.round((u.atk + (t.atkAdd || 0) + 6) * (t.atkMul || 1))}`;
+    case "rage": return noAtk ? "牧师不攻击，加了没用" : `攻击 ${atkNow} → ${atkNow * 2}`;
+    case "weaken": return noAtk ? "牧师不攻击，没效果" : `攻击 ${atkNow} → ${Math.round(atkNow / 2)}`;
+    case "guard": return `护盾 ${t.shield || 0} → ${(t.shield || 0) + 8}`;
+    case "mend": return `生命 ${u.hp} → ${Math.min(u.maxHp, u.hp + 10)}`;
+    case "doze": return "本回合不行动";
+    case "slip": { if (noAtk) return "会把血奶给怪物"; const team = aliveH(b).filter(x => x !== u).sort((a, c) => Math.abs(a.pos - u.pos) - Math.abs(c.pos - u.pos)); return team[0] ? `会砍到 ${team[0].name}` : "身边没有队友"; }
+    case "soulswap": if (S.selStage === "monster") { const h = unitById(b, S.selHero); return `生命 ${u.hp} ⇄ ${h.hp}`; } return `交出生命 ${u.hp}`;
+    case "tripwire": return "下一个打他的敌人摔倒";
+    case "mine": return `下次挨打 +${CONFIG.mineDmg}`;
+    case "guillotine": return `生命 ≤ ${Math.floor(u.maxHp * 0.3)} 时处决（现在 ${u.hp}）`;
+    case "fakedeath": return "下次阵亡战后免费复活";
+    case "holyfool": return `改为攻击，伤害 ${u.heal * 2}`;
+    case "taunt": return "本回合敌人都打他";
+  }
+  return "";
+}
+function intentText(b, m) {
+  const it = b.intents[m.uid]; if (!it || m.dead) return "";
+  const t = b.temp[m.uid] || {};
+  if (t.sleep) return "意图：打瞌睡，本回合不动";
+  if (it.kind === "charge") return "意图：蓄力（下回合重击 ×2）";
+  const mul = (it.kind === "smash" ? 2 : 1) * escOf(b);
+  const base = m.atk * mul, cur = atkValue(b, m) * mul;
+  const tg = b.taunt ? unitById(b, b.taunt) : unitById(b, it.target);
+  const notes = [];
+  if (tg && trapOn(b, "tripwire", tg.uid)) notes.push("会被绊倒");
+  if (tg && trapOn(b, "mine", tg.uid)) notes.push(`踩地雷 +${CONFIG.mineDmg}`);
+  if (tg && b.temp[tg.uid] && b.temp[tg.uid].shield) notes.push(`护盾挡 ${b.temp[tg.uid].shield}`);
+  return `意图：${it.kind === "smash" ? "重击" : "攻击"} <b>${base !== cur ? base + " → " + cur : cur}</b> → ${tg ? tg.name : "—"}${b.taunt ? "（被嘲讽）" : ""}${notes.length ? `<br>${notes.join("，")}` : ""}`;
+}
+function unitHTML(u, b, clickable, fr) {
+  const tempSrc = S.showTemp || b.temp;
+  const t = tempSrc[u.uid] || {};
+  let hp = u.hp, dead = u.dead;
+  if (fr) { const sn = fr.snap.find(x => x.uid === u.uid); hp = sn.hp; dead = sn.dead; }
   const tags = [];
   if (t.atkAdd) tags.push(`<span class="buff">攻+${t.atkAdd}</span>`);
   if (t.atkMul && t.atkMul !== 1) tags.push(`<span class="${t.atkMul > 1 ? "buff" : "debuff"}">攻×${t.atkMul}</span>`);
@@ -514,23 +667,31 @@ function unitHTML(u, b, clickable) {
   if (t.sleep) tags.push(`<span class="debuff">瞌睡</span>`);
   if (t.slip) tags.push(`<span class="debuff">手滑</span>`);
   if (t.holy) tags.push(`<span class="buff">圣愚</span>`);
-  if (b.taunt === u.uid) tags.push(`<span class="buff">嘲讽</span>`);
+  if ((S.anim ? S.showTaunt : b.taunt) === u.uid) tags.push(`<span class="buff">嘲讽</span>`);
   for (const tr of b.traps) if (tr.on === u.uid) tags.push(`<span class="trap">${CONFIG.cards[tr.kind].name}</span>`);
-  if (u.fake) tags.push(`<span class="trap">假死</span>`);
-  const it = b.intents[u.uid];
-  let intent = "";
-  if (u.side === "M" && !u.dead && it) {
-    const tn = it.target && unitById(b, it.target);
-    intent = it.kind === "charge" ? "意图：蓄力（下回合重击 ×2）" : `意图：${it.kind === "smash" ? "重击" : "攻击"} ${it.dmg} → ${b.taunt ? unitById(b, b.taunt).name + "（被嘲讽）" : tn ? tn.name : "—"}`;
-  }
+  if (u.fake && dead) tags.push(`<span class="trap">假死</span>`);
+  const intent = u.side === "M" && !dead && !fr && S.phase === "battle" ? intentText(b, u) : u.side === "M" && S.phase === "setup" ? `意图：攻击 ${u.atk} → 1 号位` : "";
   const sub = u.side === "H" ? (u.act === "heal" ? `治疗 ${u.heal}` : `攻击 ${u.atk}`) + `　投入 ${u.invest}` : `攻击 ${u.atk}${u.boss ? "　免疫直接操控" : ""}`;
-  return `<div class="unit ${u.side}${u.dead ? " dead" : ""}${u.boss ? " boss" : ""}${clickable ? " tgt" : ""}" data-a="unit" data-id="${u.uid}">
-    <div class="nm">${u.name}${u.dead ? "（阵亡）" : ""}</div>
-    <div class="hp"><div style="width:${Math.max(0, u.hp) / u.maxHp * 100}%"></div></div>
-    <div class="small">${Math.max(0, u.hp)} / ${u.maxHp}　${sub}</div>
+  let cls = "", pop = "";
+  if (fr) {
+    if (fr.actor === u.uid) cls += " acting";
+    if (fr.target === u.uid && fr.actor !== u.uid) cls += fr.popCls === "heal" ? " healed" : " hit";
+    if (fr.target === u.uid && fr.pop) pop = `<div class="pop ${fr.popCls || ""}">${fr.pop}</div>`;
+  }
+  const pv = clickable && S.sel !== null ? previewText(S.hand[S.sel], u) : "";
+  return `<div class="unit ${u.side}${dead ? " dead" : ""}${u.boss ? " boss" : ""}${clickable ? " tgt" : ""}${cls}" data-a="unit" data-id="${u.uid}">
+    ${pop}<div class="nm">${u.side === "H" ? u.pos + 1 + " " : ""}${u.name}${dead ? "（阵亡）" : ""}</div>
+    <div class="hp"><div style="width:${Math.max(0, hp) / u.maxHp * 100}%"></div></div>
+    <div class="small">${Math.max(0, hp)} / ${u.maxHp}　${sub}</div>
     <div class="tags">${tags.join("")}</div>
     ${intent ? `<div class="intent">${intent}</div>` : ""}
+    ${pv ? `<div class="pv">${pv}</div>` : ""}
   </div>`;
+}
+function orderHTML(b, fr) {
+  const isDead = u => fr ? fr.snap.find(x => x.uid === u.uid).dead && u.uid !== fr.actor : u.dead;
+  const list = b.units.filter(u => !isDead(u)).sort((a, c) => (a.side === c.side ? a.pos - c.pos : a.side === "H" ? -1 : 1));
+  return `<div class="order"><span class="muted" style="background:none;padding:0">行动顺序：</span>${list.map((u, i) => `${i ? "<i>→</i>" : ""}<span class="${fr && fr.actor === u.uid ? "now" : ""}">${u.side === "H" ? u.pos + 1 + " " : ""}${u.name}</span>`).join("")}</div>`;
 }
 function ticketHTML() {
   const bt = S.bet, side = bt.side === "win" ? "赢" : "输";
@@ -538,98 +699,120 @@ function ticketHTML() {
   parts.push(bt.amt ? `主盘：押勇者${side} ${fmt(bt.amt)} G × ${bt.odds}${bt.parlay ? `，加码「${CONDS[bt.parlay].name}」×${bt.mult}` : ""}` : "主盘：没押");
   if (S.live) parts.push(`滚球：追加 ${fmt(S.live.amt)} G × ${S.live.odds}`);
   if (bt.scriptAmt) parts.push(`剧本盘：「${S.script.name}」${fmt(bt.scriptAmt)} G × ${S.script.odds}`);
-  parts.push(`买点数已花 ${fmt(S.spentPoints)} G　原地复活已花 ${fmt(S.spentRevive)} G`);
+  parts.push(`买点数已花 ${fmt(S.spentPoints)} G　原地复活已花 ${fmt(S.spentRevive)} G${S.spentReroll ? `　刷新剧本已花 ${fmt(S.spentReroll)} G` : ""}`);
   return `<div class="ticket">${parts.map(p => `<div>${p}</div>`).join("")}</div>`;
-}
-function afterReviveCost() {
-  if (S.phase !== "end") return 0;
-  return heroes(S.b).filter(h => h.dead && S.afterChoice[h.uid] === "revive").reduce((a, h) => a + Math.round(h.invest * CONFIG.revive.after), 0);
 }
 function render() {
   const app = document.getElementById("app");
   const top = `<h1>${TEXT.title}</h1>
   <div class="card bar">
-    <button class="${S.mode === "normal" ? "on" : ""}" data-a="mode" data-v="normal">${TEXT.modeNormal}</button>
-    <button class="${S.mode === "boss" ? "on" : ""}" data-a="mode" data-v="boss">${TEXT.modeBoss}</button>
-    <button data-a="restart">${TEXT.restart}</button>
-    ${S.phase === "battle" && S.step === "play" ? `<button data-a="rehand">${TEXT.rehand}</button>` : ""}
-    <span class="sp"></span><span>金币 <span class="gold">${fmt(S.gold - afterReviveCost())}</span> G　限红 C = ${fmt(C())}</span>
+    <button class="${S.mode === "normal" ? "on" : ""}" data-a="mode" data-v="normal" ${S.anim ? "disabled" : ""}>${TEXT.modeNormal}</button>
+    <button class="${S.mode === "boss" ? "on" : ""}" data-a="mode" data-v="boss" ${S.anim ? "disabled" : ""}>${TEXT.modeBoss}</button>
+    <button data-a="restart" ${S.anim ? "disabled" : ""}>${TEXT.restart}</button>
+    ${S.phase === "battle" && S.step === "play" && !S.anim ? `<button data-a="rehand">${TEXT.rehand}</button>` : ""}
+    <span class="sp"></span><span>金币 <span class="gold">${fmt(goldShown())}</span> G　限红 C = ${fmt(C())}</span>
   </div>`;
   let body = "";
   if (S.phase === "setup") body = setupHTML();
   else if (S.phase === "bet") body = betHTML();
   else if (S.phase === "battle") body = battleHTML();
   else body = endHTML();
-  app.innerHTML = top + (S.err ? `<p class="bad">${S.err}</p>` : "") + body;
+  const banner = S.frame && S.frame.banner ? `<div class="banner">${S.frame.banner}</div>` : "";
+  app.innerHTML = top + (S.err ? `<p class="bad">${S.err}</p>` : "") + body + banner;
 }
 function setupHTML() {
-  const b = makeBattle(S.mode, S.lineup); computeIntents(b);
+  const b = makeBattle(S.mode, S.lineup, foeKey());
   const opts = CONFIG.heroes.map(h => `<option value="${h.id}">${h.name}（生命 ${h.hp}，${h.act === "heal" ? "治疗 " + h.heal : "攻击 " + h.atk}${h.skill ? "，阵亡时全队攻击 ×2" : ""}）</option>`).join("");
-  return `<div class="card"><p class="hint">${TEXT.intro}${S.mode === "boss" ? "<br>" + TEXT.bossNote : ""}</p>
+  const sc = SCRIPTS[S.scriptKey];
+  return `<div class="card"><p class="hint">${TEXT.intro}<br>${TEXT.luckNote}${S.mode === "boss" ? "<br>" + TEXT.bossNote : ""}</p>
+    <p><b>本场剧本（已锁定）：</b>「${sc.name}」${sc.need ? `<span class="muted small">　需要${heroName(sc.need)}上阵才能押</span>` : ""}</p>
     <h3>① 选 3 人上阵（1 号位在最前，怪物默认打他）</h3>
     <div class="row">${[0, 1, 2].map(i => `<label>${i + 1} 号位 <select data-a="pos" data-i="${i}">${opts.replace(`value="${S.lineup[i]}"`, `value="${S.lineup[i]}" selected`)}</select></label>`).join("")}</div>
-    <p class="muted small">勇者行动：盾卫、剑士、殉道者打最前面的敌人；刺客打最后面的；法师打血最少的；牧师给血最少的队友回血。</p>
+    <p class="muted small">行动规则：勇者按 1→2→3 号位依次出手，然后怪物依次出手。盾卫、剑士、殉道者打最前面的敌人；刺客打最后面的；法师打血最少的；牧师给血最少的队友回血。怪物默认都打 1 号位。</p>
+    <div class="row">牌组 <select data-a="deck"><option value="test" ${S.deckMode === "test" ? "selected" : ""}>${TEXT.deckTest}</option><option value="base" ${S.deckMode === "base" ? "selected" : ""}>${TEXT.deckBase}</option></select></div>
+    ${S.mode === "normal" ? `<div class="row">怪物强度 <select data-a="foe"><option value="normal" ${S.foe === "normal" ? "selected" : ""}>${TEXT.foeStrong}</option><option value="weak" ${S.foe === "weak" ? "selected" : ""}>${TEXT.foeWeak}</option></select></div>` : ""}
     <h3>敌人</h3><div class="units">${monsters(b).map(m => unitHTML(m, b, false)).join("")}</div>
     <div class="row"><button class="primary" data-a="lock">确认上阵，看庄家开盘</button></div></div>`;
 }
 function betHTML() {
   const q = S.quote, bt = S.bet, boss = S.mode === "boss";
   const side = boss ? "win" : bt.side;
-  const fair = p => (1 / p).toFixed(2);
+  const odds = side === "win" ? q.oddsWin : q.oddsLose;
+  const mult = bt.parlay && q.conds[bt.parlay] ? q.conds[bt.parlay][side] || 1 : 1;
+  const capAmt = Math.min(up10(capTotal() / (odds * mult)), C());
+  const capWarn = bt.amt * odds * mult > capTotal()
+    ? `<p class="warn">押 ${fmt(bt.amt)} G 会超过最高派彩 ${fmt(capTotal())} G（4C 封顶）：押 ${fmt(capAmt)} G 就到顶了，再多押不会多赚。</p>`
+    : capAmt < C() ? `<p class="muted small">本单最高派彩 ${fmt(capTotal())} G（主盘 + 滚球合计）。按这个赔率，主盘押 ${fmt(capAmt)} G 就到顶。</p>` : "";
   const condRows = Object.entries(q.conds).filter(([k, v]) => v[side] !== undefined).map(([k, v]) =>
     `<label class="opt ${bt.parlay === k ? "on" : ""}"><input type="radio" name="pl" data-a="parlay" data-v="${k}" ${bt.parlay === k ? "checked" : ""}> ${CONDS[k].name}：主盘派彩 ×${v[side]}</label>`).join("");
+  const sc = S.script;
   return `<div class="card">
     <h3>② 庄家开盘</h3>
-    <p>庄家按上阵勇者、怪物和"普通天神每回合打 2～4 点普通牌"推演了 ${CONFIG.bookieSims} 次，估计勇者胜率 <b>${Math.round(q.pW * 100)}%</b>（截在 ${CONFIG.pClamp[0] * 100}%～${CONFIG.pClamp[1] * 100}%）。它看不见你的牌、陷阱和加买的点数。</p>
+    <p>庄家推演了两种情况，各 ${CONFIG.bookieSims} 次（它看不见你的牌、陷阱和加买的点数）：<br>
+      · 天神出力帮忙：勇者胜 <b>${Math.round(q.pHelp * 100)}%</b> → <b>押赢</b>的赔率按这个算<br>
+      ${boss ? "" : `· 天神袖手旁观：勇者胜 <b>${Math.round(q.pIdle * 100)}%</b> → <b>押输</b>的赔率按这个算（勇者自己就会输的场，押输赔得少）<br>`}
+      <span class="muted small">胜率截在 ${CONFIG.pClamp[0] * 100}%～${CONFIG.pClamp[1] * 100}%，赔率 = 0.95 ÷ 胜率。</span></p>
     <div class="row">
-      <label class="opt ${side === "win" ? "on" : ""}"><input type="radio" name="side" data-a="side" data-v="win" ${side === "win" ? "checked" : ""}> 押勇者赢 <b>${q.oddsWin}</b> 倍 <span class="muted small">（公平 ${fair(q.pc)} 倍）</span></label>
-      ${boss ? `<span class="muted">Boss 层庄家不开"押勇者输"</span>` : `<label class="opt ${side === "lose" ? "on" : ""}"><input type="radio" name="side" data-a="side" data-v="lose" ${side === "lose" ? "checked" : ""}> 押勇者输 <b>${q.oddsLose}</b> 倍 <span class="muted small">（公平 ${fair(1 - q.pc)} 倍）</span></label>`}
+      <label class="opt ${side === "win" ? "on" : ""}"><input type="radio" name="side" data-a="side" data-v="win" ${side === "win" ? "checked" : ""}> 押勇者赢 <b>${q.oddsWin}</b> 倍</label>
+      ${boss ? `<span class="muted">Boss 层庄家不开"押勇者输"</span>` : `<label class="opt ${side === "lose" ? "on" : ""}"><input type="radio" name="side" data-a="side" data-v="lose" ${side === "lose" ? "checked" : ""}> 押勇者输 <b>${q.oddsLose}</b> 倍</label>`}
     </div>
     <div class="row">主盘金额 <input type="number" step="10" min="0" max="${C()}" value="${bt.amt}" data-a="amt"> <button data-a="amtq" data-v="0">0</button><button data-a="amtq" data-v="${down10(C() / 2)}">半注</button><button data-a="amtq" data-v="${C()}">满注 ${fmt(C())}</button></div>
+    ${capWarn}
     <h3>加码条款（可选；选了本场就不能滚球）</h3>
     <label class="opt ${!bt.parlay ? "on" : ""}"><input type="radio" name="pl" data-a="parlay" data-v="" ${!bt.parlay ? "checked" : ""}> 不加码（保留战中滚球）</label>
     ${condRows || `<p class="muted small">这一边没有可选的条款</p>`}
-    <h3>剧本盘（独立，最多 ${fmt(C() * CONFIG.script.cap)} G）</h3>
-    <p>本场剧本：「${S.script.name}」 <b>${S.script.odds}</b> 倍 <span class="muted small">（庄家估计概率 ${Math.round(S.script.p * 100)}%）</span></p>
-    <div class="row">剧本金额 <input type="number" step="10" min="0" max="${C() * CONFIG.script.cap}" value="${bt.scriptAmt}" data-a="samt"> <button data-a="samtq" data-v="0">0</button><button data-a="samtq" data-v="${C() * CONFIG.script.cap}">满注</button></div>
+    <h3>剧本盘（独立，最多 ${fmt(C() * CONFIG.script.cap)} G，不计入 4C 封顶）</h3>
+    ${sc.blocked ? `<p>本场剧本：「${sc.name}」——<span class="bad">需要${sc.blocked}上阵才能押</span>。可以回去改阵容，或者花钱换一个剧本。</p>` :
+      `<p>本场剧本：「${sc.name}」 <b>${sc.odds}</b> 倍 <span class="muted small">（庄家估计概率 ${Math.round(sc.p * 100)}%）</span></p>
+      <div class="row">剧本金额 <input type="number" step="10" min="0" max="${C() * CONFIG.script.cap}" value="${bt.scriptAmt}" data-a="samt"> <button data-a="samtq" data-v="0">0</button><button data-a="samtq" data-v="${C() * CONFIG.script.cap}">满注</button></div>`}
+    <div class="row"><button data-a="reroll">换一个剧本（−${fmt(rerollPrice())} G）</button><span class="muted small">剧本本层锁定，改阵容不会换；每多换一次价格翻倍</span></div>
     <div class="row"><button data-a="back">改阵容</button><button class="primary" data-a="fight">开战</button></div>
   </div>`;
 }
 function battleHTML() {
-  const b = S.b;
-  const sel = S.sel !== null ? S.hand[S.sel] : null;
+  const b = S.b, fr = S.frame;
+  const sel = S.sel !== null && !S.anim ? S.hand[S.sel] : null;
   const hs = heroes(b).sort((a, c) => a.pos - c.pos), ms = monsters(b);
   const cl = u => sel !== null && validTarget(sel, u);
   let step = "";
-  if (S.step === "start") {
+  if (S.anim) {
+    step = `<div class="card"><div class="bar"><b>第 ${S.animRound} 回合 · 开打</b><span class="sp"></span>
+      <button class="${S.speed === 1 ? "on" : ""}" data-a="speed" data-v="1">1 倍速</button><button class="${S.speed === 2 ? "on" : ""}" data-a="speed" data-v="2">2 倍速</button><button data-a="skip">跳过</button></div></div>`;
+  } else if (S.step === "start") {
     const dead = hs.filter(h => h.dead);
-    step = `<div class="card"><h3>回合开始</h3>
-      ${dead.length ? `<p>阵亡的勇者可以<b>原地复活</b>（投入的 ${CONFIG.revive.inBattle * 100}%，以 ${CONFIG.revive.inBattleHp * 100}% 生命回来）：</p><div class="row">${dead.map(h => `<button data-a="rev" data-id="${h.uid}">复活 ${h.name}（−${fmt(h.invest * CONFIG.revive.inBattle)} G）</button>`).join("")}</div>` : ""}
-      ${liveEligible() ? `<p>滚球窗口：庄家按当前场面重估勇者胜率 <b>${Math.round(S.liveP * 100)}%</b>，追加押勇者${S.bet.side === "win" ? "赢" : "输"}的赔率 <b>${S.liveOdds}</b> 倍（封顶 ${CONFIG.live.cap}）。只能追加一次，最多 ${fmt(S.bet.amt)} G。</p>
-        <div class="row">追加 <input type="number" step="10" min="10" max="${S.bet.amt}" value="${S.bet.amt}" id="liveamt"> <button data-a="live">追加滚球</button></div>` : ""}
+    step = `<div class="card"><h3>第 ${b.round} 回合开始</h3>
+      ${dead.length ? (S.liveThisRound ? `<p class="muted">已经追加了滚球，本回合不能再原地复活（防止"先按残局赔率加注、再复活翻盘"）。</p>` :
+        `<p>阵亡的勇者可以<b>原地复活</b>（投入的 ${CONFIG.revive.inBattle * 100}%，以 ${CONFIG.revive.inBattleHp * 100}% 生命回来）。<span class="muted small">要复活请在追加滚球之前做。</span></p><div class="row">${dead.map(h => `<button data-a="rev" data-id="${h.uid}">复活 ${h.name}（−${fmt(h.invest * CONFIG.revive.inBattle)} G）</button>`).join("")}</div>`) : ""}
+      ${liveEligible() ? `<p>滚球窗口：庄家按当前场面重估${S.liveGod === "help" ? "（假设天神继续帮忙）" : "（假设天神袖手旁观）"}，勇者胜率 <b>${Math.round(S.liveP * 100)}%</b>，追加押勇者${S.bet.side === "win" ? "赢" : "输"}的赔率 <b>${S.liveOdds}</b> 倍（封顶 ${CONFIG.live.cap}）。只能追加一次，最多 ${fmt(S.bet.amt)} G。</p>
+        ${liveRoom() <= 0 ? `<p class="warn">主盘赢了已经到 4C 封顶，再追加不会多赚。</p>` : up10(liveRoom() / S.liveOdds) < S.bet.amt ? `<p class="muted small">离 4C 封顶还差 ${fmt(liveRoom())} G 派彩：追加 ${fmt(up10(liveRoom() / S.liveOdds))} G 就到顶。</p>` : ""}
+        <div class="row">追加 <input type="number" step="10" min="10" max="${S.bet.amt}" value="${Math.min(S.bet.amt, Math.max(10, up10(liveRoom() / S.liveOdds)))}" id="liveamt"> <button data-a="live">追加滚球</button></div>` : ""}
+      ${S.liveThisRound ? `<p class="good">已追加滚球 ${fmt(S.live.amt)} G × ${S.live.odds}</p>` : ""}
       <div class="row"><button class="primary" data-a="toplay">${liveEligible() ? "不追加，" : ""}开始出牌</button></div></div>`;
   } else {
+    const offer = S.buyOffer ? (() => { const c = CONFIG.cards[S.hand[S.buyOffer.i]]; return `<div class="hint">「${c.name}」要 ${c.cost} 点，你还差 ${S.buyOffer.k} 点。<div class="row"><button class="primary" data-a="buyplay">花 ${fmt(S.buyOffer.price)} G 加买 ${S.buyOffer.k} 点，打出「${c.name}」</button><button data-a="nobuy">算了</button></div></div>`; })() : "";
     step = `<div class="card"><div class="bar"><b>第 ${b.round} 回合 · 天神阶段</b><span class="sp"></span>
-      点数 <b style="font-size:18px">${S.points}</b>　<button data-a="buy" ${S.bought >= CONFIG.maxBuy ? "disabled" : ""}>加买 1 点（−${fmt(buyPrice())} G）</button></div>
-      ${sel ? `<p class="hint">选目标：${CONFIG.cards[sel].target === "heroThenMonster" ? (S.selStage === "hero" ? "先点一名勇者" : "再点一个怪物") : "点亮的单位都可以"}（再点一次手牌取消）</p>` : ""}
+      点数 <b style="font-size:18px">${S.points}</b>　<button data-a="buy" ${S.bought >= CONFIG.maxBuy ? "disabled" : ""} class="small">加买 1 点 −${fmt(buyPrice())} G</button></div>
+      ${offer}
+      ${sel ? `<p class="hint">选目标：${CONFIG.cards[sel].target === "heroThenMonster" ? (S.selStage === "hero" ? "先点一名勇者" : "再点一个怪物") : "点亮的单位都可以，蓝字是打出后的效果"}（再点一次手牌取消）</p>` : ""}
       <div class="hand">${S.hand.map((id, i) => { const c = CONFIG.cards[id]; return `<div class="fc ${S.sel === i ? "sel" : ""} ${c.cost > S.points ? "no" : ""} ${c.ty === "陷阱" ? "trap" : c.ty === "暗箱" ? "dark" : ""}" data-a="card" data-i="${i}"><span class="cost">${c.cost}</span><b>${c.name}</b><div class="ty">${c.ty}</div><div class="small">${c.desc}</div></div>`; }).join("")}</div>
       <div class="row"><button class="primary" data-a="end">结束出牌，开打</button><span class="muted small">抽牌堆 ${S.draw.length} · 弃牌堆 ${S.discard.length}</span></div></div>`;
   }
-  const recap = S.lastRound && S.lastRound.length ? `<div class="card"><h3>上回合发生了什么</h3><div class="log" style="max-height:none">${S.lastRound.map(l => `<div class="${l.cls || ""}">${l.txt}</div>`).join("")}</div></div>` : "";
-  return `${recap}<div class="card">${ticketHTML()}
-    <h3>勇者</h3><div class="units">${hs.map(u => unitHTML(u, b, cl(u))).join("")}</div>
-    <h3>敌人${S.mode === "boss" ? `　<span class="muted small">${TEXT.bossNote}</span>` : ""}</h3><div class="units">${ms.map(u => unitHTML(u, b, cl(u))).join("")}</div>
-    ${b.traps.filter(t => !t.on).length ? `<p class="small" style="color:var(--dark)">场上：${b.traps.filter(t => !t.on).map(t => CONFIG.cards[t.kind].name).join("、")}</p>` : ""}
-  </div>${step}<div class="card"><h3>战斗记录</h3><div class="log">${b.log.map(l => `<div class="${l.cls || ""}">${l.txt}</div>`).join("")}</div></div>`;
+  const recap = !S.anim && S.lastRound && S.lastRound.length ? `<div class="card"><details><summary>上回合发生了什么（${S.lastRound.length} 条）</summary><div class="log" style="max-height:none;margin-top:6px">${S.lastRound.map(l => `<div class="${l.cls || ""}">${l.txt}</div>`).join("")}</div></details></div>` : "";
+  return `<div class="card">${ticketHTML()}
+    ${orderHTML(b, fr)}
+    <h3>勇者</h3><div class="units">${hs.map(u => unitHTML(u, b, cl(u), fr)).join("")}</div>
+    <h3>敌人${S.mode === "boss" ? `　<span class="muted small">${TEXT.bossNote}</span>` : ""}</h3><div class="units">${ms.map(u => unitHTML(u, b, cl(u), fr)).join("")}</div>
+    <p class="muted small">${TEXT.luckNote}</p>
+  </div>${step}${recap}<div class="card"><h3>战斗记录</h3><div class="log">${(fr ? b.log.slice(0, fr.logLen) : b.log).map(l => `<div class="${l.cls || ""}">${l.txt}</div>`).join("")}</div></div>`;
 }
 function endHTML() {
   const st = S.settle, bt = S.bet, b = S.b, res = st.res;
   const after = heroes(b).filter(h => h.dead);
-  const afterCost = after.reduce((a, h) => a + (S.afterChoice[h.uid] === "revive" ? Math.round(h.invest * CONFIG.revive.after) : 0), 0);
+  const afterCost = afterReviveCost(), toll = tollPaid();
   const stakes = bt.amt + bt.scriptAmt + (S.live ? S.live.amt : 0);
   const pays = st.mainPay + st.livePay + st.scriptPay;
   const betProfit = pays - stakes;
-  const net = betProfit + st.bounty - st.toll - S.spentPoints - S.spentRevive - afterCost;
+  const net = betProfit + st.bounty - toll - S.spentPoints - S.spentRevive - afterCost - S.spentReroll;
   const side = bt.side === "win" ? "赢" : "输";
   const row = (k, v, cls = "") => `<tr class="${cls}"><td>${k}</td><td class="n">${v}</td></tr>`;
   const lines = [];
@@ -637,25 +820,35 @@ function endHTML() {
   if (S.live) lines.push(row(`滚球：追加 ${fmt(S.live.amt)} × ${S.live.odds}`, sgn(st.livePay - S.live.amt)));
   if (bt.scriptAmt) lines.push(row(`剧本盘「${S.script.name}」${st.scriptHit ? "发生了" : "没发生"}`, sgn(st.scriptPay - bt.scriptAmt)));
   if (st.capped) lines.push(row(`（主盘 + 滚球派彩超过 ${CONFIG.payoutCap}C 上限，扣掉 ${fmt(st.capped)}）`, ""));
-  return `<div class="card"><h3>${res.win ? `<span class="good">勇者胜</span>` : `<span class="bad">勇者败</span>`}（第 ${res.end} 回合结束）</h3>
-    <h3>阵亡勇者怎么办</h3>
-    ${after.length ? after.map(h => S.afterChoice[h.uid] === "free" ? `<p>${h.name}：${st.toll ? "已交 Boss 过路费，全队免费复活" : "假死机关，战后免费复活"}</p>` :
+  let heroPart;
+  if (st.toll) {
+    const can = S.gold >= st.toll;
+    heroPart = `<h3>Boss 层战败：交不交过路费？</h3>
+      <div class="row"><label><input type="radio" name="toll" data-a="toll" data-v="pay" ${S.tollChoice === "pay" ? "checked" : ""} ${can ? "" : "disabled"}> 交 ${fmt(st.toll)} G（${CONFIG.bossToll}C），算过关，全队免费复活</label></div>
+      <div class="row"><label><input type="radio" name="toll" data-a="toll" data-v="wipe" ${S.tollChoice === "wipe" ? "checked" : ""}> 不交：团灭，勇者全部失去，这一局到此结束</label></div>
+      ${can ? "" : `<p class="bad">现在手上 ${fmt(S.gold)} G，交不起过路费，只能团灭。</p>`}`;
+  } else {
+    heroPart = `<h3>阵亡勇者怎么办</h3>` + (after.length ? after.map(h => S.afterChoice[h.uid] === "free" ? `<p>${h.name}：假死机关，战后免费复活</p>` :
       `<div class="row"><b>${h.name}</b>（投入 ${h.invest}）
         <label><input type="radio" name="af${h.uid}" data-a="after" data-id="${h.uid}" data-v="revive" ${S.afterChoice[h.uid] === "revive" ? "checked" : ""}> 战后复活 −${fmt(h.invest * CONFIG.revive.after)} G</label>
-        <label><input type="radio" name="af${h.uid}" data-a="after" data-id="${h.uid}" data-v="abandon" ${S.afterChoice[h.uid] === "abandon" ? "checked" : ""}> 放弃（永久失去）</label></div>`).join("") : `<p class="muted">没有人阵亡。</p>`}
+        <label><input type="radio" name="af${h.uid}" data-a="after" data-id="${h.uid}" data-v="abandon" ${S.afterChoice[h.uid] === "abandon" ? "checked" : ""}> 放弃（永久失去）</label></div>`).join("") : `<p class="muted">没有人阵亡。</p>`);
+  }
+  return `<div class="card"><h3>${res.win ? `<span class="good">勇者胜</span>` : `<span class="bad">勇者败</span>`}（第 ${res.end} 回合结束）${S.tollChoice === "wipe" ? `　<span class="bad">团灭，本局结束</span>` : ""}</h3>
+    ${heroPart}
     <h3>这一场的账</h3>
     <table class="st">
       ${lines.join("")}
       ${row("<b>押注赚了</b>", `<b>${sgn(betProfit)}</b>`)}
       ${st.bounty ? row("过关赏金", sgn(st.bounty)) : ""}
-      ${st.toll ? row(`Boss 过路费（${CONFIG.bossToll}C，交了算过关）`, sgn(-st.toll)) : ""}
+      ${toll ? row(`Boss 过路费（${CONFIG.bossToll}C，交了算过关）`, sgn(-toll)) : ""}
       ${row("买点数花了", sgn(-S.spentPoints))}
       ${row("原地复活花了", sgn(-S.spentRevive))}
       ${row("战后复活花了", sgn(-afterCost))}
+      ${S.spentReroll ? row("刷新剧本花了", sgn(-S.spentReroll)) : ""}
       ${row("实际净赚", sgn(net), "tot")}
     </table>
-    <p class="muted small">押注赚了 ${sgn(betProfit)}${st.bounty ? ` + 赏金 ${fmt(st.bounty)}` : ""}${st.toll ? ` − 过路费 ${fmt(st.toll)}` : ""} − 买点数 ${fmt(S.spentPoints)} − 复活费 ${fmt(S.spentRevive + afterCost)} = ${sgn(net)} G。
-      金币：开场 ${fmt(S.goldStart)} → 结算后 ${fmt(S.gold - afterCost)}（差 ${sgn(S.gold - afterCost - S.goldStart)}）</p>
+    <p class="muted small">押注赚了 ${sgn(betProfit)}${st.bounty ? ` + 赏金 ${fmt(st.bounty)}` : ""}${toll ? ` − 过路费 ${fmt(toll)}` : ""} − 买点数 ${fmt(S.spentPoints)} − 复活费 ${fmt(S.spentRevive + afterCost)}${S.spentReroll ? ` − 刷新剧本 ${fmt(S.spentReroll)}` : ""} = ${sgn(net)} G。
+      金币：开场 ${fmt(S.goldStart)} → 结算后 ${fmt(goldShown())}（差 ${sgn(goldShown() - S.goldStart)}）</p>
     <div class="row"><button class="primary" data-a="again">再来一场（金币重置为 ${fmt(CONFIG.startGold)}）</button></div>
   </div><div class="card"><h3>战斗记录</h3><div class="log">${b.log.map(l => `<div class="${l.cls || ""}">${l.txt}</div>`).join("")}</div></div>`;
 }
@@ -666,28 +859,41 @@ function endHTML() {
 document.addEventListener("click", e => {
   const el = e.target.closest("[data-a]"); if (!el) return;
   const a = el.dataset.a, v = el.dataset.v;
+  if (a === "speed") { S.speed = Number(v); return render(); }
+  if (a === "skip") { S.skip = true; return; }
+  if (S.anim) return;
   if (a === "mode") return newState(v);
   if (a === "restart" || a === "again") return newState(S.mode);
-  if (a === "rehand") { S.discard.push(...S.hand); S.hand = []; drawCards(CONFIG.handSize); S.sel = null; return render(); }
+  if (a === "rehand") { S.discard.push(...S.hand); S.hand = []; drawCards(CONFIG.handSize); S.sel = null; S.buyOffer = null; return render(); }
   if (a === "lock") { if (new Set(S.lineup).size < 3) return err("3 个位置要选不同的勇者"); S.err = ""; openBook(); return render(); }
   if (a === "side") { S.bet.side = v; S.bet.parlay = null; return render(); }
   if (a === "parlay") { S.bet.parlay = v || null; return render(); }
   if (a === "amtq") { S.bet.amt = Number(v); return render(); }
   if (a === "samtq") { S.bet.scriptAmt = Number(v); return render(); }
+  if (a === "reroll") return rerollScript();
   if (a === "back") { S.phase = "setup"; return render(); }
-  if (a === "fight") { if (startFight() !== false) render(); return; }
+  if (a === "fight") { if (startFight()) render(); return; }
   if (a === "rev") return reviveInBattle(el.dataset.id);
   if (a === "live") return placeLive(Number(document.getElementById("liveamt").value) || 0);
   if (a === "toplay") { S.step = "play"; S.err = ""; return render(); }
   if (a === "buy") return buyPoint();
+  if (a === "buyplay") return acceptBuyOffer();
+  if (a === "nobuy") { S.buyOffer = null; return render(); }
   if (a === "card") return clickCard(Number(el.dataset.i));
   if (a === "unit") return clickUnit(el.dataset.id);
-  if (a === "end") return endTurn();
-  if (a === "after") { S.afterChoice[el.dataset.id] = v; return render(); }
+  if (a === "end") { endTurn(); return; }
+  if (a === "toll") { if (v === "pay" && S.gold < S.settle.toll) return; S.tollChoice = v; return render(); }
+  if (a === "after") {
+    const prev = S.afterChoice[el.dataset.id]; S.afterChoice[el.dataset.id] = v;
+    if (goldShown() < 0) { S.afterChoice[el.dataset.id] = prev; return err("金币不够战后复活"); }
+    S.err = ""; return render();
+  }
 });
 document.addEventListener("change", e => {
   const el = e.target; const a = el.dataset && el.dataset.a;
   if (a === "pos") { const i = Number(el.dataset.i), id = el.value, j = S.lineup.indexOf(id); if (j >= 0 && j !== i) S.lineup[j] = S.lineup[i]; S.lineup[i] = id; render(); }
+  if (a === "deck") { S.deckMode = el.value; render(); }
+  if (a === "foe") { S.foe = el.value; render(); }
   if (a === "amt") { S.bet.amt = Math.max(0, Number(el.value) || 0); render(); }
   if (a === "samt") { S.bet.scriptAmt = Math.max(0, Number(el.value) || 0); render(); }
 });
