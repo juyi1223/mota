@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>魔塔操盘手 v0.8.1</title>
+<title>魔塔操盘手 v0.8.2</title>
 <style>
 :root { --bg:#f6f5f1; --card:#fff; --ink:#1f1f1f; --muted:#6b6b6b; --line:#e2e0da; --accent:#2f6fde; --good:#1e8a4a; --bad:#c0392b; --gold:#a8730a; --dark:#6a3fb5; }
 * { box-sizing:border-box; }
@@ -76,6 +76,9 @@ button.big { font-size:18px; padding:10px 34px; }
 @keyframes reelin { 0%{transform:translateY(-40px) rotateX(90deg); opacity:0} 60%{transform:translateY(6px)} 100%{transform:none; opacity:1} }
 .slotbox .row { justify-content:center; }
 .fc.pass { border-color:#b3261e; background:#fff8e6; } .legend { color:#b3261e; }
+.fc.revive { border-color:#2f9e44; background:#f1fbf3; }
+.ledger td.barc { width:40%; } .bar { display:inline-block; height:10px; border-radius:3px; } .bar.in { background:#2f9e44; } .bar.out { background:#c92a2a; }
+.curve { width:100%; max-width:480px; height:auto; background:#fafafa; border:1px solid var(--line); border-radius:6px; }
 
 </style>
 </head>
@@ -86,33 +89,40 @@ button.big { font-size:18px; padding:10px 34px; }
 // 配置区：所有数值、名字、文字、图片路径都在这个文件里改
 // =====================================================================
 const CONFIG = {
-  version: "0.8.1",
+  version: "0.8.2",
   floors: 50, bossEvery: 5,
   startGold: 300, startHeroes: ["shield", "sword", "priest"], teamMax: 6, fieldMax: 3, blackSlots: 5, deckMin: 6,
   startDeck: [["strike", 4], ["guard", 3], ["mend", 2], ["oracle", 1]],
-  capBase: 100, capGrow: 1.124,                 // 限红 C(f) = 100 × 1.124^(f−1)
+  capBase: 100, capGrow: 1.124,                 // 押注上限 C(f) = 100 × 1.124^(f−1)（以前叫"限红"）
   stages: [                                     // 每一段：庄家返还率 R、普通层赏金、普通层过路费 toll、Boss 过路费 bossToll（都 ×C）、弱怪层比例 weak
     { to: 5, R: 1.05, bounty: 0.5, toll: 0.5, bossToll: 3, name: "新手期" }, { to: 25, R: 1.0, bounty: 0.4, toll: 0.5, bossToll: 3, weak: 0.4, name: "上半场" },
     { to: 35, R: 0.92, bounty: 0.3, name: "中期" }, { to: 50, R: 0.90, bounty: 0.3, name: "后期" } ],   // 没写 toll / bossToll / weak 的段用下面的默认值
   bossBounty: 1.5, bossToll: 5,
   // 第 50 层三个结局。fix=世纪假赛：倍率 = 1 ÷ 庄家眼里勇者（没人帮）输的概率，最高 maxOdds；输的概率 ≥ 95% 不接单；至少押手上金币的 minStake
   // duel=堂堂正正：魔王按全队最强 3 人调到庄家估计胜率 duelTarget，且不低于标准魔王的 duelFloor 倍。tower=买下魔塔：价格 towerPrice×C
-  // 第 50 层老虎机定结局：slot=三个结局的权重（运气抬高对决和收购）；重摇 respin×C，每次翻倍；堂堂正正随时可选
+  // 第 50 层老虎机定结局：slot=三个结局的权重（运气抬高对决和收购）；重摇 respin×C，每次翻倍；堂堂正正（普通版）随时可选
+  // 摇到堂堂正正 = 加强版：魔王调到胜率 duelPlus.target，赢了金币 ×duelPlus.mult；输过一次以后只能打普通版
   // 收购魔塔：身家到 towerMin×C 才买得起，价格 = 身家 × towerPct，剩下的带走
-  finale: { maxOdds: 10, minStake: 0.1, duelTarget: 0.5, duelFloor: 0.3, slot: { fix: 55, duel: 35, tower: 10 }, respin: 2, respinGrow: 2, towerMin: 200, towerPct: 0.99 },
+  finale: { maxOdds: 10, minStake: 0.1, duelTarget: 0.5, duelFloor: 0.3, slot: { fix: 55, duel: 35, tower: 10 }, duelPlus: { target: 0.35, mult: 2 }, respin: 2, respinGrow: 2, towerMin: 200, towerPct: 0.99 },
   // 第 25 层三选一
-  // path1 无封顶：资金池 = pool×C(25)×poolGrow^(层数−25)×(heatBase+热度÷100)；过路费至少是身家的 tollPct / bossTollPct；
-  //   撤离只能靠商店刷出通行证（大卡池里的权重 passW），档位 passTiers，权重 passWeights；house=「庄家是我」把资金池放大的倍数
-  //   finalSlot=true：打到第 50 层完成结局后，带出率也按通行证这张表摇一次（改成 false 就是 100% 带走）
-  // path2 大限红：限红、派彩上限、剧本盘 ×capMul，过路费 ×tollMul；只在 floors 这几层能撤离，老虎机用 tiers / weights
+  // path2 大押注：押注上限、派彩上限、剧本盘 ×capMul，过路费 ×tollMul；只在 floors 这几层能撤离，老虎机用 tiers / weights
   fork: { floor: 25,
-    path1: { pool: 30, poolGrow: 1.2, heatBase: 0.5, house: 1.5, finalSlot: true, tollPct: 0.05, bossTollPct: 0.15, passW: 1.1, passTiers: [0.3, 0.5, 0.75, 1, 2], passWeights: [45, 30, 14, 10, 1] },
+    // path1 亡命徒：死了不复活，没有过路费
+    //   资金池 = pool×C(25)×poolGrow^(层数−25)×(heatBase+热度÷100)×(1+怒气×anger.pool÷100)
+    //   怒气：押中净赚每 1 个押注上限 +anger.perC（最高 max）；没押中或不押减半。押中后净赚多拿 怒气×anger.bonus %；怪物生命攻击 ×(1+anger.monster×怒气÷100)
+    //   复活卡：商店每次必有 1 张，价格取 revive.price×C 和身家×revive.pct 里高的；最多带 revive.max 张。战斗中原地复活：inBattle.c×C 和身家×inBattle.pct 里高的
+    //   商店每 shopEvery 层开一次（第 25、50 层也开），每次 heroSlots 个勇者格。撤离只能靠商店里的通行证（权重 passW、档位 passTiers、权重 passWeights）
+    // R：亡命徒路线庄家的返还率（1.0 = 不抽水）
+    path1: { pool: 30, poolGrow: 1.2, heatBase: 0.5, house: 1.5, R: 1.0,
+      anger: { perC: 10, max: 100, pool: 2, bonus: 1, monster: 0.4 },
+      revive: { price: 1, pct: 0.02, max: 3 }, inBattle: { c: 1, pct: 0.05 }, shopEvery: 2, heroSlots: 2,
+      passW: 1.1, passTiers: [0.3, 0.5, 0.75, 1, 2], passWeights: [45, 30, 14, 10, 1] },
     path2: { capMul: 2.5, tollMul: 1.5, floors: [35, 45], tiers: [0.3, 0.5, 0.75, 1, 1.5], weights: [35, 30, 20, 12, 3] } },
   // 玩家第一次到第 2 层时的固定教学怪阵（数值就是最终面板，不再乘倍率）
   tutorial2: { name: "前排送死", tip: "勇者先出手。前排小骷髅只有 8 点生命。", monsters: [["小骷髅", 8, 5], ["弩手", 65, 23]] },
   // 撤离老虎机：打赢 Boss 后先摇带出率，再决定走不走。tiers=带出率，weights=各档权重（运气把最低档以外的权重抬高）
   extractSlot: { tiers: [0.3, 0.5, 0.75, 1], weights: [40, 30, 20, 10] },
-  // 押中老虎机：主盘押到限红的 minStake 以上并且押中，摇一次。mult=主盘赚到的钱变成几倍（多出来的部分另算，不占派彩上限）
+  // 押中老虎机：主盘押到押注上限的 minStake 以上并且押中，摇一次。mult=主盘赚到的钱变成几倍（多出来的部分另算，不占派彩上限）
   slot: { minStake: 0.5, prizes: [{ key: "seven", p: 0.01, mult: 5 }, { key: "coin", p: 0.04, mult: 2 }, { key: "pair", p: 0.15, mult: 1.2 }] },
   // 运气值：每 1 点让各奖项概率 ×(1+perPoint)。没中奖 +missGain；中三个金币或三个 7 后清零（黑幕牌给的不清）。pityAfter：否极泰来要连输几次主盘
   fortune: { perPoint: 0.10, max: 20, missGain: 1, koi: 5, dice: 10, pityAfter: 3 },
@@ -196,7 +206,7 @@ const CARDS = {
   darkdeal:  { name: "黑暗交易", rarity: "rare", cost: 1, ty: "功能", target: "none", kw: "点数", desc: "本回合加买点数不再翻倍（每个都按第一个的价格）" },
   ragnarok:  { name: "诸神黄昏", rarity: "legend", cost: 3, ty: "暗箱", target: "none", kw: "暗箱", desc: "本回合所有单位（敌我都算，Boss 除外）攻击 ×3" },
   rewrite:   { name: "命运重写", rarity: "legend", cost: 2, ty: "暗箱", target: "monsterThenAny", kw: "暗箱", desc: "指定一个怪物（Boss 除外）本回合改打你选的任意单位，可以让它打自己人" },
-  immortal:  { name: "不朽", rarity: "legend", cost: 3, ty: "复活", target: "none", kw: "复活", desc: "本场如果输了，免交过路费（Boss 层不算）" },
+  immortal:  { name: "不朽", rarity: "legend", cost: 3, ty: "复活", target: "none", kw: "复活", desc: "本场如果输了，免交过路费（Boss 层不算）；亡命徒路线里：本场阵亡的勇者全部保住" },
   dice:      { name: "天命骰", rarity: "rare", cost: 0, ty: "运气", target: "none", kw: "运气", desc: "本场运气 +10；随机一名勇者本回合打瞌睡" },
   descent:   { name: "天神降临", rarity: "legend", cost: "X", ty: "功能", target: "none", kw: "点数", desc: "花掉你现在所有点数，每点对全体敌人造成 {n} 伤害。唯一能直接打到 Boss 的牌" },
 };
@@ -204,7 +214,7 @@ const CARDS = {
 const CARD_NUM = { strike: 6, guard: 8, mend: 10, bigshield: 18, sacrifice: 10, showtime: 4, descent: 6, mine: 10 };
 
 const BLACKS = {
-  cousin:   { name: "庄家的远亲", rarity: "common", desc: "战前主盘限红 +50%" },
+  cousin:   { name: "庄家的远亲", rarity: "common", desc: "主盘押注上限 +50%" },
   insurer:  { name: "保险经纪", rarity: "common", desc: "主盘没押中时，退回 20% 本金" },
   hype:     { name: "炒作大师", rarity: "common", kw: "热度", desc: "勇者赢一场，热度额外 +10" },
   fixer:    { name: "做局高手", rarity: "common", kw: "暗箱", desc: "押勇者输并押中，主盘和滚球的净利 +20%（仍受派彩上限限制）" },
@@ -221,7 +231,7 @@ const BLACKS = {
   house:    { name: "庄家是我", rarity: "legend", desc: "单层最高派彩从 4C 提高到 6C；无封顶路线里改为资金池 ×1.5" },
   comeback: { name: "回本神话", rarity: "legend", kw: "带出", desc: "撤离老虎机每一档的带出率 +10 个百分点" },
   koi:      { name: "锦鲤", rarity: "rare", kw: "运气", desc: "运气 +5（一直有效，中大奖也不清零）" },
-  pity:     { name: "否极泰来", rarity: "rare", kw: "运气", desc: "主盘连续 3 次没押中后，下一次押中必出三个金币（主盘要押到限红一半以上才算）" },
+  pity:     { name: "否极泰来", rarity: "rare", kw: "运气", desc: "主盘连续 3 次没押中后，下一次押中必出三个金币（主盘要押到押注上限一半以上才算）" },
 };
 
 const STARS = {
@@ -257,7 +267,7 @@ const BOSS_DEEP_PREFIX = "深渊·";   // 第 30 层起的 Boss 是前面的加�
 
 const TEXT = {
   title: "魔塔操盘手",
-  subtitle: "v0.8.1 · 下半场大改：三条路、资金池、结局老虎机（白盒）",
+  subtitle: "v0.8.2 · 亡命徒路线、怒气、复活卡、加强版对决、总账（白盒）",
   intro: "你是腐败天神：派凡人勇者闯 50 层魔塔，在魔王的赌场押他们的输赢，再用命运牌暗中左右战斗。庄家看得见勇者和怪物，看不见你的牌、陷阱和加买的点数。",
   act: { front: "打最前面的敌人", back: "打最后面的敌人", lowest: "打血最少的敌人", heal: "给血最少的队友回血", bard: "不攻击" },
   rarity: { basic: "基础", common: "普通", rare: "稀有", legend: "传说" },
@@ -275,21 +285,24 @@ const TEXT = {
   fixClosed: "庄家认为这支队伍自己就会输，不接这张单。换一支看起来有胜算的队伍再来。",
   slot: { title: "押中了，摇一次老虎机", pull: "拉杆", symbols: ["樱", "铃", "星", "瓜"], seven: "７", coin: "金",
     seven_: "三个 7！主盘赚的钱 ×5", coin_: "三个金币！主盘赚的钱 ×2", pair_: "两个一样：主盘赚的钱 +20%", miss_: "没中。运气 +1",
-    need: "主盘押到限红的一半以上并且押中，才能摇老虎机。" },
+    need: "主盘押到押注上限的一半以上并且押中，才能摇老虎机。" },
   extractSlot: { title: "摇带出率", pull: "拉杆", note: "带出率摇出来就定了，读档重摇也是同一个结果。" },
   fortuneNote: "运气：每 1 点让老虎机每个奖项的概率 +10%。押中但没中奖 +1，中了三个金币或三个 7 清零。",
   dupSettle: "本局奖励已领取，本次未重复入账。",
   finale: {
     fix: { name: "世纪假赛", desc: "和魔王串通，押勇者输。倍率 = 1 ÷ 庄家估的勇者战败概率，最高 10 倍，可以押上全部金币，至少押一成。庄家认定这支队伍自己就会输（战败概率 ≥ 95%）时不接单。这场要真打，演砸了（勇者把魔王打死）赌注全没。无论输赢，剩下的金币 100% 带走。" },
     tower: { name: "收购魔塔", desc: "把整座魔塔买下来。身家要过门槛才买得起；过了门槛，价格是你身家的 99%，剩下的 1% 带走。买下之后的事，以后再说。" },
+    duelPlus: { name: "堂堂正正·加强版", desc: "老虎机摇出来的才有。魔王按你全队最强的 3 个人调到你只有三成多胜率。赢了，手上的金币翻倍，再 100% 带走。输了交过路费可以重打，但只能打普通版。" },
     duel: { name: "堂堂正正", desc: "不玩花样，正面对决。魔王会按你全队最强的 3 个人调整实力，打成五五开。只能押赢。赢了金币 100% 带走，全队进英灵殿；输了交过路费可以重打。这个结局随时可以选。" },
   },
   fork: { title: "第 25 层：上半场结束，选一条路", lost: "这一层是交过路费过的，不能在这里撤离，只能选路一或路二。",
-    p1: { name: "路一：无封顶", desc: "下注不设上限，最多押上全部身家。但钱押得越大，赔率被你自己压得越低，每层最多赢走庄家的资金池（每层涨两成，热度越高越大）。过路费按身家比例收。<b>Boss 层不能撤离</b>：只有在商店里刷到「撤离通行证」才能走，刷到必须当场决定。打到第 50 层完成结局后，带出率也要摇一次（30%～200%），没有白拿的 100%。" },
-    p2: { name: "路二：大限红", desc: "限红、派彩上限、剧本盘都放大到 2.5 倍，过路费放大到 1.5 倍。只有第 35 层和第 45 层打赢 Boss 才能撤离，老虎机多一档 150%。" },
+    p1: { name: "路一：亡命徒", desc: "下注不设上限，最多押上全部身家；押得越大，赔率被你自己压得越低，每层最多赢走庄家的资金池。<b>勇者死了不复活</b>，没有过路费，只能靠复活卡救人。<b>庄家怒气</b>：押中赚得越多，怒气越高，资金池越大、押中多分钱越多，但下一层怪物也越强。商店每 2 层开一次。<b>Boss 层不能撤离</b>：只有在商店里刷到「撤离通行证」才能走。打到第 50 层，结局照常 100% 带走。" },
+    p2: { name: "路二：大押注", desc: "押注上限、派彩上限、剧本盘都放大到 2.5 倍，过路费放大到 1.5 倍。只有第 35 层和第 45 层打赢 Boss 才能撤离，老虎机多一档 150%。" },
     p3: { name: "路三：现在就走", desc: "按摇到的带出率撤离，这一局结束。" } },
   pass: { name: "撤离通行证", desc: "无封顶路线唯一的出口。先摇带出率，再决定走不走。离开商店或刷新货架，它就没了。", pull: "摇带出率", use: "用它撤离" },
-  pathName: { 1: "无封顶", 2: "大限红" },
+  pathName: { 1: "亡命徒", 2: "大押注" },
+  revive: { name: "复活卡", desc: "结算时救回一名阵亡的勇者（满血归队）。最多带 3 张。", have: "复活卡" },
+  angerNote: "庄家怒气：押中赚得越多越高（每赚 1 个押注上限 +10，最高 100），没押中或不押就减半。怒气越高，资金池越大、押中多分越多，但怪物也越强。",
   endings: { fix: "世纪假赛成功：魔王陪你演完了最后一场戏", oops: "隐藏结局：演砸了，勇者意外杀死了魔王", duel: "堂堂正正击败了魔王", tower: "你买下了魔塔", clear: "通关！打穿了 50 层魔塔" },
   keywords: [
     ["运气", "锦鲤、否极泰来、天命骰；回本神话抬高带出率"],
@@ -610,6 +623,9 @@ function monsterK(f) { let k = CONFIG.monster.m1, prev = 1; for (const s of CONF
 const cardScale = f => levelMul(f);
 function grand() { G.rs = G.rs + 0x6D2B79F5 | 0; let t = Math.imul(G.rs ^ G.rs >>> 15, 1 | G.rs); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }
 const has = k => G.blacks.some(x => x.key === k);
+// 总账：每一笔金币进出都走 book()，按类别记下来。开局金币 + 总账合计 = 手上金币
+function book(cat, d) { if (!d) return; G.gold += d; G.ledger = G.ledger || {}; G.ledger[cat] = (G.ledger[cat] || 0) + d; }
+const ledgerSum = () => Object.values(G.ledger || {}).reduce((a, x) => a + x, 0);
 const memberById = id => G.team.find(m => m.id === id);
 const cardNum = (k, f) => Math.max(1, Math.round(CARD_NUM[k] * cardScale(f || G.floor)));
 const cardDesc = k => CARDS[k].desc.replace("{n}", CARD_NUM[k] ? cardNum(k) : "");
@@ -619,12 +635,11 @@ function newMember(key, lv, investC) {
   return { id: G.nextId++, key, name: d.name, rarity: d.rarity, hp: d.hp, atk: d.atk, heal: d.heal || 0, act: d.act, skill: d.skill || null, lv,
     hpAdd: 0, atkAdd: 0, healAdd: 0, hidden: 0, mult: 1, comet: 0, stars: [] };
 }
-const reviveInCost = () => money(CONFIG.revive.inBattle);
+const reviveInCost = () => (G.path === 1 ? Math.max(money(P1().inBattle.c), up10(G.gold * P1().inBattle.pct)) : money(CONFIG.revive.inBattle));
 // 普通层输了的过路费：1.5C；不死僧上阵减半；每颗彗星 +0.25C；每次假死机关触发 −0.5C；不朽 = 免交
 function tollFor(ms, fakeDeaths, immortal) {
   if (immortal) return 0;
   const rv = CONFIG.revive; let t = tollBase();
-  if (G.path === 1) t = Math.max(t, G.gold * P1().tollPct / C());   // 无封顶路线：过路费至少是身家的一个比例
   if (ms.some(m => m.skill === "monk")) t *= rv.tollMonk;
   t += ms.reduce((a, m) => a + (m.comet || 0), 0) * rv.tollComet;
   t -= fakeDeaths * rv.tollFake;
@@ -646,7 +661,7 @@ const trainCost = () => money(CONFIG.level.cost);
 function newRun(hallIdx, seed) {
   seed = seed || Math.floor(Math.random() * 1e9);
   G = { v: 1, runId: newRunId(), tut2: !META.tut2Done, seed, rs: seed, nextId: 1, floor: 1, gold: CONFIG.startGold, heat: CONFIG.heat.start, team: [], deck: [], blacks: [], phase: "prep", lineup: [],
-    foe: null, scriptKey: null, rerolls: 0, spentReroll: 0, spentTrain: 0, bet: null, betInit: false, shop: null, reward: null, floorGold0: 0, stash: 0, luck: 0, missBets: 0, rolls: null, extractSpin: null, path: null, fork: null, finaleSpin: null, spentSpin: 0,
+    foe: null, scriptKey: null, rerolls: 0, spentReroll: 0, spentTrain: 0, bet: null, betInit: false, shop: null, reward: null, floorGold0: 0, stash: 0, luck: 0, missBets: 0, rolls: null, extractSpin: null, path: null, fork: null, finaleSpin: null, spentSpin: 0, ledger: {}, goldHist: [], anger: 0, revives: 0, duelPlus: false, duelPlusLost: false,
     stats: { wins: 0, losses: 0, throws: 0, betray: 0, bossTrap: 0, tolls: 0, bestNet: 0, bestNetFloor: 0 }, history: [], over: null };
   for (const k of CONFIG.startHeroes) G.team.push(newMember(k, 1));
   if (hallIdx != null && META.hall[hallIdx]) { const k = META.hall.splice(hallIdx, 1)[0]; saveMeta(); G.team.push(newMember(k, 1)); }
@@ -670,9 +685,27 @@ const P1 = () => CONFIG.fork.path1, P2 = () => CONFIG.fork.path2;
 const capMul = () => (G.path === 2 ? P2().capMul : 1);
 const poolOn = () => G.path === 1 && G.finale !== "fix";
 // 资金池：押得越大，实际赚到的越少，最多赢走整个池子。赚到的 = x × 池 ÷ (池 + x)，x 是按牌面赔率该赚的钱
-const poolSize = () => Math.round(P1().pool * capOf(CONFIG.fork.floor) * Math.pow(P1().poolGrow, G.floor - CONFIG.fork.floor) * (P1().heatBase + G.heat / 100) * (has("house") ? P1().house : 1) / 10) * 10;
+const angerNow = () => (G.path === 1 ? G.anger || 0 : 0);
+const poolSize = () => Math.round(P1().pool * capOf(CONFIG.fork.floor) * Math.pow(P1().poolGrow, G.floor - CONFIG.fork.floor) * (P1().heatBase + G.heat / 100) * (has("house") ? P1().house : 1) * (1 + angerNow() * P1().anger.pool / 100) / 10) * 10;
+const angerMonster = () => 1 + P1().anger.monster * angerNow() / 100;   // 怒气让怪物变强的倍数
+const angerBonusPct = () => P1().anger.bonus * angerNow();             // 押中后净赚多拿几成（%）
+const reviveCardPrice = () => Math.max(money(P1().revive.price), up10(G.gold * P1().revive.pct));
+const shopOpen = () => G.path !== 1 || G.floor === CONFIG.fork.floor || G.floor >= CONFIG.floors || G.floor % P1().shopEvery === 0;
+function afterFloor() { if (shopOpen()) { genShop(); G.phase = "shop"; autosave(); } else leaveShop(); }   // 路一不开店的层：直接去下一层
+function floorFoe(f) {   // 路一：怒气让怪物变强（庄家看得见，赔率会跟着变）
+  const foe = genFloor(f), k = angerMonster();
+  if (k > 1) { foe.monsters.forEach(m => { m.hp = Math.round(m.hp * k); m.atk = Math.round(m.atk * k); }); if (foe.minion) foe.minion = Object.assign({}, foe.minion, { hp: Math.round(foe.minion.hp * k), atk: Math.round(foe.minion.atk * k) }); foe.angerMul = k; }
+  return foe;
+}
+function toggleSave(uid) {   // 路一结算：用复活卡救人
+  const S = BT && BT.S; if (!S || !S.perma) return { ok: false, err: "现在不能用复活卡" };
+  const i = S.saved.indexOf(uid);
+  if (i >= 0) { S.saved.splice(i, 1); return { ok: true }; }
+  if (S.saved.length >= G.revives) return { ok: false, err: "复活卡不够" };
+  S.saved.push(uid); return { ok: true };
+}
 const squeeze = (x, P) => (x <= 0 ? 0 : Math.floor(x * P / (P + x)));
-const bossTollG = () => Math.max(Math.round(bossTollC() * C()), G.path === 1 ? up10(G.gold * P1().bossTollPct) : 0);
+const bossTollG = () => Math.round(bossTollC() * C());
 const extractHere = () => G.floor < CONFIG.floors && isBossFloor(G.floor) && (G.path == null || (G.path === 2 && P2().floors.includes(G.floor)));
 function nextExtractFloor() { for (let f = G.floor + 1; f < CONFIG.floors; f++) if (f % CONFIG.bossEvery === 0 && (G.path == null ? f <= CONFIG.fork.floor : G.path === 2 && P2().floors.includes(f))) return f; return 0; }
 function chooseFork(k) {
@@ -680,8 +713,8 @@ function chooseFork(k) {
   if (k === 3) { if (!G.fork.win) return { ok: false, err: "这一层是交过路费过的，不能撤离" }; spinExtract(); endRun("extract"); return { ok: true }; }
   if (k !== 1 && k !== 2) return { ok: false, err: "没有这条路" };
   G.path = k; const win = G.fork.win; G.fork = null;
-  if (win) { genReward(); G.phase = "reward"; } else { genShop(); G.phase = "shop"; }
-  autosave(); return { ok: true };
+  if (win) { genReward(); G.phase = "reward"; autosave(); } else afterFloor();
+  return { ok: true };
 }
 const isFinale = () => G.floor >= CONFIG.floors;
 const heroPower = m => { const st = heroStats(m); return st.maxHp * (st.atk + st.heal + 1); };
@@ -693,22 +726,23 @@ function spinFinale() {   // 第一次免费；之后每次重摇价格翻倍
   if (!isFinale() || G.phase !== "prep") return { ok: false, err: "还没到第 50 层" };
   const first = !G.finaleSpin, price = first ? 0 : respinPrice();
   if (G.gold < price) return { ok: false, err: "金币不够重摇" };
-  G.gold -= price; G.spentSpin = (G.spentSpin || 0) + price;
+  book("spin", -price); G.spentSpin = (G.spentSpin || 0) + price;
   const od = finaleOdds(); let x = grand(), kind = od[od.length - 1].kind;
   for (const o of od) { if (x < o.p) { kind = o.kind; break; } x -= o.p; }
   G.finaleSpin = { kind, n: first ? 0 : G.finaleSpin.n + 1 };
-  if (G.finale) { G.finale = null; G.foe = genFloor(G.floor); Q = null; }
+  if (G.finale) { G.finale = null; G.foe = floorFoe(G.floor); Q = null; }
   autosave(); return { ok: true, kind };
 }
 // 堂堂正正：把魔王调到"庄家估计全队最强 3 人帮忙胜率 ≈ 50%"，且不低于标准魔王的 duelFloor 倍
-function duelFoe() {
+function duelFoe(target) {
   const fc = CONFIG.finale, base = monsterK(G.floor) * CONFIG.monster.bossScale;
   const ref = G.team.slice().sort((a, b) => heroPower(b) - heroPower(a)).slice(0, CONFIG.fieldMax).sort((a, b) => heroStats(b).maxHp - heroStats(a).maxHp);
   const pAt = s => { const foe = bossFoe(FINAL_BOSS, s, false); const b = makeBattle({ heroes: ref, monsters: foe.monsters, minion: foe.minion, C: C(), heat: 50, scale: cardScale(G.floor), boss: true }); return prob(simulate(b, 120, mulberry(hashStr(G.seed + ":duel")), "help", 0), x => x.win); };
   let lo = base * fc.duelFloor, hi = base * 2;
-  if (pAt(lo) > fc.duelTarget) {
-    for (let i = 0; i < 12 && pAt(hi) > fc.duelTarget; i++) { lo = hi; hi *= 2; }
-    for (let i = 0; i < 9; i++) { const mid = Math.sqrt(lo * hi); if (pAt(mid) > fc.duelTarget) lo = mid; else hi = mid; }
+  const tg = target || fc.duelTarget;
+  if (pAt(lo) > tg) {
+    for (let i = 0; i < 12 && pAt(hi) > tg; i++) { lo = hi; hi *= 2; }
+    for (let i = 0; i < 9; i++) { const mid = Math.sqrt(lo * hi); if (pAt(mid) > tg) lo = mid; else hi = mid; }
     lo = Math.sqrt(lo * hi);
   }
   const foe = bossFoe(FINAL_BOSS, lo, false); foe.script = G.foe.script; foe.duelScale = lo / base; foe.duelRef = ref.map(m => m.id);
@@ -716,13 +750,17 @@ function duelFoe() {
 }
 function chooseFinale(kind) {
   if (!isFinale()) return { ok: false, err: "还没到第 50 层" };
-  if (kind !== "duel" && !(G.finaleSpin && G.finaleSpin.kind === kind)) return { ok: false, err: "老虎机没摇到这个结局。堂堂正正随时可以选" };
+  const plus = kind === "duelPlus";
+  if (plus && G.duelPlusLost) return { ok: false, err: "加强版已经输过一次，只能打普通版" };
+  if (kind !== "duel" && !(G.finaleSpin && G.finaleSpin.kind === (plus ? "duel" : kind))) return { ok: false, err: "老虎机没摇到这个结局。堂堂正正（普通版）随时可以选" };
+  if (plus) kind = "duel";
+  G.duelPlus = plus;
   if (kind === "tower") {
     if (G.gold < towerMin()) return { ok: false, err: `身家要到 ${towerMin()} G 才买得起魔塔` };
-    const p = towerCost(); G.gold -= p; G.towerPaid = p; G.finale = "tower"; endRun("tower"); return { ok: true };
+    const p = towerCost(); book("tower", -p); G.towerPaid = p; G.finale = "tower"; endRun("tower"); return { ok: true };
   }
   G.finale = kind; Q = null; G.betInit = false; G.bet = { side: kind === "fix" ? "lose" : "win", amt: 0, parlay: null, scriptAmt: 0 };
-  G.foe = kind === "duel" ? duelFoe() : genFloor(G.floor);
+  G.foe = kind === "duel" ? duelFoe(plus ? CONFIG.finale.duelPlus.target : null) : floorFoe(G.floor);
   if (kind === "duel") G.lineup = G.foe.duelRef.slice();   // 默认派魔王对标的那 3 个人
   autosave(); return { ok: true };
 }
@@ -749,15 +787,15 @@ function tutorialFoe(f) {
     script: pick(r, Object.keys(SCRIPTS).filter(k => !SCRIPTS[k].bossOnly)) };
 }
 function enterFloor() {
-  G.foe = G.floor === 2 && G.tut2 ? tutorialFoe(2) : genFloor(G.floor);
+  G.foe = G.floor === 2 && G.tut2 ? tutorialFoe(2) : floorFoe(G.floor);
   // 第一次到第 2 层用教学怪阵；以后的新局恢复随机怪阵，这一局读档仍是教学怪阵
   if (G.floor === 2 && G.tut2 && !META.tut2Done) { META.tut2Done = true; saveMeta(); }
   G.scriptKey = G.foe.script; G.rerolls = 0; G.spentReroll = 0; G.spentTrain = 0; G.betInit = false;
   G.bet = { side: "win", amt: 0, parlay: null, scriptAmt: 0 };
   G.floorGold0 = G.gold; G.stash = 0;
   // 这一层的老虎机结果在进层时就定好并写进存档：读档重打不会改变摇出来的东西
-  G.rolls = { slot: grand(), sym: grand(), extract: grand() }; G.extractSpin = null; G.finaleSpin = null; G.spentSpin = 0; G.fork = null;
-  if (has("stash")) { G.stash = Math.round(CONFIG.blackEffects.stash * C()); G.gold += G.stash; }
+  G.rolls = { slot: grand(), sym: grand(), extract: grand() }; G.extractSpin = null; if (!isFinale()) G.finaleSpin = null; G.spentSpin = 0; G.fork = null;
+  if (has("stash")) { G.stash = Math.round(CONFIG.blackEffects.stash * C()); book("perks", G.stash); }
   G.lineup = G.lineup.filter(id => memberById(id));
   for (const m of G.team) if (G.lineup.length < CONFIG.fieldMax && !G.lineup.includes(m.id)) G.lineup.push(m.id);
   G.shop = null; G.reward = null; G.phase = "prep"; BT = null; Q = null; G.finale = null;
@@ -770,6 +808,8 @@ function hasAuto() { return !!STORE.get(SAVE.auto); }
 function hasSlot() { return !!STORE.get(SAVE.slot); }
 function loadFrom(str) { const g = JSON.parse(str); if (!g || !g.team || !g.deck) throw new Error("bad save"); if (!g.runId) g.runId = "old-" + g.seed;   // 旧存档：同一个档每次读出来都是同一个编号
   if (g.luck == null) { g.luck = 0; g.missBets = 0; }
+  if (!g.ledger) { g.ledger = { old: g.gold - CONFIG.startGold }; g.goldHist = []; }
+  if (g.anger == null) { g.anger = 0; g.revives = 0; }
   if (!g.rolls) g.rolls = { slot: 0.99, sym: 0.5, extract: 0.2 };
   if (g.shop && !g.shop.items) g.shop = { items: [...(g.shop.fates || []).map(x => ({ type: "fate", key: x.key, sold: x.sold })), ...(g.shop.misc || []), ...(g.shop.hero ? [{ type: "hero", key: g.shop.hero.key, sold: g.shop.hero.sold }] : [])], refreshes: g.shop.refreshes || 0 };
   G = g; BT = null; Q = null; LAST_SAFE = str; if (G.phase === "bet" || G.phase === "battle" || G.phase === "settle") G.phase = "prep"; }
@@ -847,7 +887,7 @@ const lineupSig = () => G.lineup.map(id => { const m = memberById(id); return [m
 function openBook(sims) {
   if (!G.lineup.length) return { ok: false, err: "至少要派 1 名勇者上阵" };
   if (isFinale() && !G.finale) return { ok: false, err: "先选一个结局" };
-  const b = buildBattle(), N = sims || CONFIG.bookieSims, bias = heatBias(), R = stageOf(G.floor).R;
+  const b = buildBattle(), N = sims || CONFIG.bookieSims, bias = heatBias(), R = G.path === 1 && P1().R ? P1().R : stageOf(G.floor).R;   // 亡命徒：庄家不抽水，押赢靠怒气分红赚
   const r = mulberry(hashStr(G.seed + ":q:" + G.floor + ":" + lineupSig() + ":" + G.heat));
   const help = simulate(b, N, r, "help", bias), idle = simulate(b, N, r, "idle", bias);
   const pHelp = prob(help, s => s.win), pIdle = prob(idle, s => s.win);
@@ -885,7 +925,7 @@ const fixMinStake = () => Math.min(down10(G.gold), up10(G.gold * CONFIG.finale.m
 const rerollPrice = () => Math.max(10, Math.round(CONFIG.script.rerollBase * C() * Math.pow(2, G.rerolls) / 10) * 10);
 function rerollScript() {
   const p = rerollPrice(); if (G.gold < p) return { ok: false, err: "金币不够" };
-  G.gold -= p; G.spentReroll += p; G.rerolls++;
+  book("reroll", -p); G.spentReroll += p; G.rerolls++;
   const pool = Object.keys(SCRIPTS).filter(k => k !== G.scriptKey && (G.foe.boss ? !SCRIPTS[k].normalOnly : !SCRIPTS[k].bossOnly));
   G.scriptKey = pick(grand, pool); G.bet.scriptAmt = 0; quoteScript();
   return { ok: true };
@@ -904,7 +944,7 @@ function startBattle() {
   if (amt > mainCap()) return { ok: false, err: `主盘最多 ${mainCap()} G` };
   if (sAmt > scriptCap()) return { ok: false, err: `剧本盘最多 ${scriptCap()} G` };
   if (amt + sAmt > G.gold) return { ok: false, err: "金币不够" };
-  G.gold -= amt + sAmt;
+  book(side === "win" ? "betWin" : "betLose", -amt); book("script", -sAmt);
   const pc = amt > 0 && bt.parlay ? Q.conds[side].find(c => c.key === bt.parlay) : null;
   const b = Q.b;
   BT = { b, main: { side, amt, odds: sq.odds, parlay: pc ? pc.key : null, mult: pc ? pc.mult : 1 }, lives: [], script: { amt: sAmt, odds: Q.script.odds || 0, key: G.scriptKey },
@@ -949,7 +989,7 @@ function reviveInBattle(uid) {
   if (BT.liveThisRound) return { ok: false, err: "已经追加了滚球，本回合不能再原地复活" };
   const h = unitById(BT.b, uid), cost = reviveInCost();
   if (G.gold < cost) return { ok: false, err: "金币不够" };
-  G.gold -= cost; BT.spentRevive += cost;
+  book("revive", -cost); BT.spentRevive += cost;
   h.dead = false; h.fake = false; h.hp = Math.max(1, Math.round(h.maxHp * CONFIG.revive.inBattleHp));
   L(`花 ${cost} G 原地复活 ${h.name}（${h.hp} 生命）`, "t");
   computeIntents(BT.b);
@@ -961,7 +1001,7 @@ function placeLive(amt) {
   if (amt % 10 || amt <= 0) return { ok: false, err: "追加金额要是 10 的倍数" };
   if (amt > BT.main.amt) return { ok: false, err: "追加不能超过战前主盘" };
   if (amt > G.gold) return { ok: false, err: "金币不够" };
-  G.gold -= amt; BT.lives.push({ amt, odds: BT.live.odds }); BT.liveLeft--; BT.liveThisRound = true;
+  book("live", -amt); BT.lives.push({ amt, odds: BT.live.odds }); BT.liveLeft--; BT.liveThisRound = true;
   L(`滚球追加：押勇者${BT.main.side === "win" ? "赢" : "输"} ${amt} G，赔率 ${BT.live.odds}`, "t");
   return { ok: true };
 }
@@ -974,7 +1014,7 @@ function buyPoint() {
   if (BT.bought >= CONFIG.maxBuy) return { ok: false, err: `本回合最多加买 ${CONFIG.maxBuy} 个` };
   const p = pointPrice(BT.bought); if (G.gold < p) return { ok: false, err: "金币不够" };
   if (p === 0) BT.vipUsed = true;
-  G.gold -= p; BT.spentPoints += p; BT.bought++; BT.points++;
+  book("points", -p); BT.spentPoints += p; BT.bought++; BT.points++;
   return { ok: true };
 }
 const cardCost = id => id === "descent" ? Math.max(1, BT.points) : CARDS[id].cost;
@@ -1048,7 +1088,7 @@ function endTurn() {
   const from = b.log.length, g0 = b.goldGain;
   resolveRound(b, BT.rng, L);
   b.frame = null;
-  const gain = b.goldGain - g0; if (gain) { G.gold += gain; BT.miser += gain; }
+  const gain = b.goldGain - g0; if (gain) { book("perks", gain); BT.miser += gain; }
   BT.lastRound = b.log.slice(from);
   if (b.winner) finishBattle(); else beginRound();
   return { frames, pre };
@@ -1078,6 +1118,7 @@ function finishBattle() {
     const bonusS = Math.round((mainPay - m.amt) * (z.mult - 1));
     if (z.key === "miss") G.luck = Math.min(fo.max, (G.luck || 0) + fo.missGain); else if (z.key !== "pair") G.luck = 0;
     slot = { key: z.key, mult: z.mult, bonus: bonusS, luck0, luck1: Math.min(fo.max, G.luck + (has("koi") ? fo.koi : 0)), pity, reels: slotReels(z.key, G.rolls.sym) };
+    if (z.key === "seven" && G.path === 1 && G.revives < P1().revive.max) { G.revives++; slot.card = true; }   // 路一：三个 7 送复活卡
   }
   if (slotOK) G.missBets = mainHit ? 0 : (G.missBets || 0) + 1;
   const slotBonus = slot ? slot.bonus : 0;
@@ -1091,12 +1132,22 @@ function finishBattle() {
   const heat0 = G.heat, hc = CONFIG.heat;
   G.heat = clamp(G.heat + (win ? hc.win + (has("hype") ? hc.hype : 0) : hc.lose) + b.heatGain, hc.min, hc.max);
   const gate = has("gate") ? Math.round(Math.floor(G.heat / 10) * be.gate * c) : 0;
-  G.gold += mainPay + livePay + bonus + slotBonus + refund + scriptPay + bounty + lifeins + gate;
-  const toll = win || fix ? 0 : G.foe.boss ? bossTollG() : normalToll(b);   // 无封顶路线按结算后的身家算
-  const S = { res, win, mainHit, parlayOK, mainPay, livePay, liveStake, bonus, bonusNotes, capped, pool: BT.pool, refund, slot, slotBonus, scriptHit, scriptPay, bounty, lifeins, gate, toll, heat0, heat1: G.heat,
-    stakes: m.amt + liveStake + BT.script.amt, tollChoice: null, fix, bossLoss: !win && G.foe.boss && !fix, tollFree: !win && !G.foe.boss && toll === 0 };
+  // 路一怒气：押中的净赚按怒气多分；然后按这一层赢了多少更新怒气（下一层生效）
+  const anger0 = angerNow(), betNet = mainPay + livePay + bonus - m.amt - liveStake;
+  const angerBonus = G.path === 1 && !fx && mainHit && betNet > 0 ? Math.round(betNet * angerBonusPct() / 100) : 0;
+  if (G.path === 1 && !fx) { const an = P1().anger; G.anger = mainHit && betNet > 0 ? Math.min(an.max, Math.round(anger0 + an.perC * (betNet + angerBonus) / c)) : Math.floor(anger0 / 2); }
+  book(m.side === "win" ? "betWin" : "betLose", mainPay); book("live", livePay); book("bonus", bonus); book("slot", slotBonus); book("anger", angerBonus);
+  book("refund", refund); book("script", scriptPay); book("bounty", bounty); book("perks", lifeins + gate);
+  const duel2 = win && G.finale === "duel" && G.duelPlus ? Math.round(G.gold * (CONFIG.finale.duelPlus.mult - 1)) : 0;   // 加强版对决：赢了金币翻倍
+  book("duel2", duel2);
+  if (!win && G.finale === "duel" && G.duelPlus) G.duelPlusLost = true;
+  const perma = G.path === 1 && !fix;   // 路一：死了不复活，没有过路费
+  const toll = win || fix || perma ? 0 : G.foe.boss ? bossTollG() : normalToll(b);
+  const S = { res, win, mainHit, parlayOK, mainPay, livePay, liveStake, bonus, bonusNotes, capped, pool: BT.pool, refund, slot, slotBonus, angerBonus, anger0, anger1: angerNow(), duel2, perma, saved: [], scriptHit, scriptPay, bounty, lifeins, gate, toll, heat0, heat1: G.heat,
+    stakes: m.amt + liveStake + BT.script.amt, tollChoice: null, fix, bossLoss: !win && G.foe.boss && !fix && !perma, tollFree: !win && !G.foe.boss && toll === 0 && !perma };
   // 输了：Boss 层 交 / 团灭；普通层 交 / 不交（阵亡的勇者永久失去）。赢了：全员免费复活
-  S.tollChoice = win || fix ? null : G.gold >= toll ? "pay" : S.bossLoss ? "wipe" : "abandon";
+  if (perma && b.immortal) S.saved = heroes(b).filter(h => h.dead).map(h => h.uid);   // 不朽：路一里本场阵亡的人全部保住
+  S.tollChoice = win || fix || perma ? null : G.gold >= toll ? "pay" : S.bossLoss ? "wipe" : "abandon";
   BT.S = S; G.phase = "settle";
   L(win ? "—— 勇者胜 ——" : "—— 勇者败 ——", "r");
   if (res.bossTrap) G.stats.bossTrap++;
@@ -1105,25 +1156,34 @@ function finishBattle() {
 const tollPaid = () => (BT.S.tollChoice === "pay" ? BT.S.toll : 0);
 const goldAfterSettle = () => G.gold - tollPaid();
 function billNet() {
-  const S = BT.S, betProfit = S.mainPay + S.livePay + S.bonus + S.slotBonus + S.scriptPay + S.refund - S.stakes;
+  const S = BT.S, betProfit = S.mainPay + S.livePay + S.bonus + S.slotBonus + S.angerBonus + S.scriptPay + S.refund - S.stakes;
   const other = S.lifeins + S.gate + BT.miser + G.stash;
-  return { betProfit, other, net: betProfit + S.bounty + other - tollPaid() - BT.spentPoints - BT.spentRevive - G.spentReroll - G.spentTrain - (G.spentSpin || 0) };
+  return { betProfit, other, net: betProfit + S.bounty + other + S.duel2 - tollPaid() - BT.spentPoints - BT.spentRevive - G.spentReroll - G.spentTrain - (G.spentSpin || 0) };
 }
 function setToll(v) {
   const S = BT.S;
-  if (S.win || !(v === "pay" || (v === "wipe" && S.bossLoss) || (v === "abandon" && !S.bossLoss))) return { ok: false, err: "不能这样选" };
+  if (S.win || S.perma || !(v === "pay" || (v === "wipe" && S.bossLoss) || (v === "abandon" && !S.bossLoss))) return { ok: false, err: "不能这样选" };
   if (v === "pay" && G.gold < S.toll) return { ok: false, err: "金币不够交过路费" };
   S.tollChoice = v; return { ok: true };
 }
 function confirmSettle() {
   const S = BT.S, b = BT.b, bill = billNet(), win = S.win;
   G.history.push({ f: G.floor, win, side: BT.main.amt ? BT.main.side : "", net: bill.net, boss: G.foe.boss });
+  G.goldHist = G.goldHist || []; G.goldHist.push([G.floor, goldAfterSettle()]);
   if (win) G.stats.wins++; else G.stats.losses++;
   if (BT.main.side === "lose" && BT.main.amt > 0 && !win) G.stats.throws++;
   if (bill.net > G.stats.bestNet) { G.stats.bestNet = bill.net; G.stats.bestNetFloor = G.floor; }
   if (S.fix) { BT = null; Q = null; return endRun(win ? "oops" : "fix"); }
   if (S.tollChoice === "wipe") { BT = null; return endRun("wipe"); }
-  if (S.tollChoice === "pay") { G.gold -= S.toll; if (S.toll) G.stats.tolls++; }
+  if (S.tollChoice === "pay") { book("toll", -S.toll); if (S.toll) G.stats.tolls++; }
+  if (S.perma) {   // 路一：用了复活卡的人回来，其余阵亡的永久离队
+    const free = b.immortal;
+    for (const h of heroes(b)) if (h.dead) {
+      const m = memberById(h.mid); if (!m) continue;
+      if (S.saved.includes(h.uid)) { if (!free) G.revives--; G.stats.saved = (G.stats.saved || 0) + 1; }
+      else { G.team.splice(G.team.indexOf(m), 1); G.lineup = G.lineup.filter(id => id !== m.id); G.stats.lost = (G.stats.lost || 0) + 1; }
+    }
+  }
   else if (S.tollChoice === "abandon") for (const h of heroes(b)) if (h.dead) {
     const m = memberById(h.mid);
     if (m) { G.team.splice(G.team.indexOf(m), 1); G.lineup = G.lineup.filter(id => id !== m.id); }
@@ -1139,7 +1199,7 @@ function confirmSettle() {
   }
   else if (win) { genReward(); G.phase = "reward"; }
   else if (atFork) { G.fork = { win: false }; G.phase = "fork"; }   // 交过路费过了第 25 层：也要选路，但不能撤离
-  else { genShop(); G.phase = "shop"; }
+  else return afterFloor();
   autosave();
 }
 const extractRate = () => (G.extractSpin ? G.extractSpin.base + (has("comeback") ? CONFIG.blackEffects.comeback : 0) : 0);
@@ -1147,9 +1207,7 @@ function decideExtract(leave) { if (leave) { spinExtract(); return endRun("extra
 function endRun(kind) {
   const full = ["clear", "duel", "fix", "oops", "tower"].includes(kind);
   // 无封顶路线没有白拿的 100%：打完结局，带出率还要按通行证那张表摇一次（收购除外）
-  let finalSpin = null;
-  if (full && kind !== "tower" && G.path === 1 && P1().finalSlot) { const od = tierOdds(P1().passTiers, P1().passWeights); finalSpin = od[rollTier(od, G.rolls.extract)].rate + (has("comeback") ? CONFIG.blackEffects.comeback : 0); }
-  const rate = finalSpin != null ? finalSpin : full ? 1 : kind === "extract" ? extractRate() : 0;
+  const rate = full ? 1 : kind === "extract" ? extractRate() : 0;
   const takeGold = Math.floor(G.gold * rate), out = [], outKeys = [], dup = alreadySettled();
   // 世纪假赛：上阵的勇者"死"在了戏里，只有没上场的进英灵殿
   if (rate > 0) for (const m of G.team) if (!(kind === "fix" && G.lineup.includes(m.id)) && grand() < Math.min(1, rate)) { out.push(m.name); outKeys.push(m.key); }
@@ -1160,7 +1218,7 @@ function endRun(kind) {
     META.vault += takeGold; META.runs++; META.best = Math.max(META.best, G.floor); META.betray = (META.betray || 0) + G.stats.betray;
   }
   saveMeta(); STORE.del(SAVE.auto); LAST_SAFE = null;
-  G.over = { kind, rate, takeGold, gold: G.gold, heroes: out, floor: G.floor, dup, path: G.path, finalSpin, towerPaid: kind === "tower" ? G.towerPaid : 0 };
+  G.over = { kind, rate, takeGold, gold: G.gold, heroes: out, floor: G.floor, dup, path: G.path, ledger: Object.assign({}, G.ledger), goldHist: (G.goldHist || []).slice(), start: CONFIG.startGold, towerPaid: kind === "tower" ? G.towerPaid : 0 };
   G.phase = "over";
 }
 
@@ -1175,7 +1233,7 @@ function rollFrom(defs, n, r, w, skip) {
   return out;
 }
 function genReward() { G.reward = rollFrom(CARDS, 3, grand, CONFIG.shop.rarity); }
-function pickReward(i) { if (i != null && G.reward[i]) G.deck.push(G.reward[i]); G.reward = null; genShop(); G.phase = "shop"; autosave(); }
+function pickReward(i) { if (i != null && G.reward[i]) G.deck.push(G.reward[i]); G.reward = null; afterFloor(); }
 function genShop(keepRefresh) {   // 命运牌、黑幕牌、星辰牌一个大卡池（无封顶路线里还混着撤离通行证）；勇者单独一格
   const sc = CONFIG.shop, items = [], taken = (type, key) => items.some(x => x.type === type && x.key === key);
   const tw = Object.assign({}, sc.typeW); if (G.path === 1 && G.floor < CONFIG.floors) tw.pass = P1().passW;
@@ -1187,8 +1245,9 @@ function genShop(keepRefresh) {   // 命运牌、黑幕牌、星辰牌一个大�
     else k = rollFrom(STARS, 1, grand, sc.rarity, key => taken(type, key))[0];
     if (k) items.push({ type, key: k, sold: false });
   }
-  const hk = rollFrom(HEROES, 1, grand, sc.heroRarity, key => G.team.some(m => m.key === key))[0];
-  if (hk) items.push({ type: "hero", key: hk, sold: false });
+  const hn = G.path === 1 ? P1().heroSlots : 1, hks = rollFrom(HEROES, hn, grand, sc.heroRarity, key => G.team.some(m => m.key === key));
+  for (const hk of hks) items.push({ type: "hero", key: hk, sold: false });
+  if (G.path === 1) items.push({ type: "revive", key: "revive", sold: false });   // 路一：每次进店必有 1 张复活卡
   G.shop = { items, refreshes: keepRefresh || 0 };
 }
 function revealPass(i) { const it = G.shop && G.shop.items[i]; if (!it || it.type !== "pass" || it.sold) return { ok: false, err: "没有通行证" }; it.revealed = true; autosave(); return { ok: true, rate: it.rate }; }
@@ -1197,7 +1256,7 @@ function usePass(i) {   // 当场撤离；不用的话，离开商店或刷新�
   it.revealed = true; G.extractSpin = { idx: -1, base: it.rate, luck: luckNow(), pass: true }; endRun("extract"); return { ok: true };
 }
 const priceMul = (type, key) => { if (type === "pass") return 0; const d = { fate: CARDS, black: BLACKS, star: STARS, hero: HEROES }[type][key]; return key === "pluto" ? 0 : d.price || CONFIG.shop.price[type][d.rarity]; };
-const priceOf = (type, key) => (key === "pluto" || type === "pass" ? 0 : money(priceMul(type, key)));
+const priceOf = (type, key) => (type === "revive" ? reviveCardPrice() : key === "pluto" || type === "pass" ? 0 : money(priceMul(type, key)));
 function applyStar(key, m) {
   switch (key) {
     case "sun": m.hpAdd += 10; break; case "mars": m.atkAdd += 3; break; case "moon": m.healAdd += 4; break;
@@ -1210,6 +1269,7 @@ function applyStar(key, m) {
 function buyItem(i, memberId) {
   const it = G.shop.items[i]; if (!it || it.sold) return { ok: false, err: "卖掉了" };
   if (it.type === "pass") return { ok: false, err: "通行证不用买，直接用" };
+  if (it.type === "revive") { const p = reviveCardPrice(); if (G.revives >= P1().revive.max) return { ok: false, err: `复活卡最多带 ${P1().revive.max} 张` }; if (G.gold < p) return { ok: false, err: "金币不够" }; book("reviveCard", -p); G.revives++; it.sold = true; autosave(); return { ok: true }; }
   const p = priceOf(it.type, it.key), poor = { ok: false, err: "金币不够" };
   if (it.type === "fate") { if (G.gold < p) return poor; G.deck.push(it.key); }
   else if (it.type === "black") {
@@ -1227,17 +1287,17 @@ function buyItem(i, memberId) {
       applyStar(it.key, m);
     }
   }
-  G.gold -= p; it.sold = true; autosave(); return { ok: true };
+  book("shop", -p); it.sold = true; autosave(); return { ok: true };
 }
 const refreshPrice = () => money(CONFIG.shop.refresh * Math.pow(CONFIG.shop.refreshGrow, G.shop ? G.shop.refreshes : 0));
-function deleteCard(idx) { const p = money(CONFIG.shop.del); if (G.deck.length <= CONFIG.deckMin) return { ok: false, err: `牌库最少保留 ${CONFIG.deckMin} 张` }; if (G.gold < p) return { ok: false, err: "金币不够" }; G.gold -= p; G.deck.splice(idx, 1); autosave(); return { ok: true }; }
-function refreshShop() { const p = refreshPrice(); if (G.gold < p) return { ok: false, err: "金币不够" }; G.gold -= p; genShop(G.shop.refreshes + 1); autosave(); return { ok: true }; }
-function sellBlack(i) { const bk = G.blacks[i]; if (!bk) return { ok: false }; G.gold += Math.round(bk.paid / 2); G.blacks.splice(i, 1); autosave(); return { ok: true }; }
+function deleteCard(idx) { const p = money(CONFIG.shop.del); if (G.deck.length <= CONFIG.deckMin) return { ok: false, err: `牌库最少保留 ${CONFIG.deckMin} 张` }; if (G.gold < p) return { ok: false, err: "金币不够" }; book("del", -p); G.deck.splice(idx, 1); autosave(); return { ok: true }; }
+function refreshShop() { const p = refreshPrice(); if (G.gold < p) return { ok: false, err: "金币不够" }; book("refresh", -p); genShop(G.shop.refreshes + 1); autosave(); return { ok: true }; }
+function sellBlack(i) { const bk = G.blacks[i]; if (!bk) return { ok: false }; book("perks", Math.round(bk.paid / 2)); G.blacks.splice(i, 1); autosave(); return { ok: true }; }
 function train(memberId) {
   const m = memberById(memberId), p = trainCost();
   if (m.lv >= levelCap()) return { ok: false, err: `等级上限是 ${levelCap()}` };
   if (G.gold < p) return { ok: false, err: "金币不够" };
-  G.gold -= p; m.lv++; if (G.phase === "prep") G.spentTrain += p; autosave(); return { ok: true };
+  book("train", -p); m.lv++; if (G.phase === "prep") G.spentTrain += p; autosave(); return { ok: true };
 }
 function trainAll(ids) { let n = 0; for (let guard = 0; guard < 400; guard++) { let did = false; for (const id of ids) { const m = memberById(id); if (m && m.lv < levelCap() && G.gold >= trainCost()) { train(id); n++; did = true; } } if (!did) break; } return n; }
 function leaveShop() { if (G.floor < CONFIG.floors) G.floor++; enterFloor(); }   // 第 50 层交了过路费：留在第 50 层重打
@@ -1282,7 +1342,7 @@ function topBar() {
   return `<div class="card bar top">
     <b>第 ${G.floor} / ${CONFIG.floors} 层${boss ? " · Boss" : ""}</b><span class="muted small">${stageOf(G.floor).name}</span>
     <span class="sp"></span>
-    <span>金币 <span class="gold">${fmt(gold)}</span></span><span>限红 C ${fmt(C())}</span>${G.path ? `<span class="kw">${TEXT.pathName[G.path]}</span>` : ""}${G.path === 1 ? `<span>资金池 ${fmt(poolSize())}</span>` : ""}<span title="${heatNote()}">热度 <b>${heat}</b></span><span title="${TEXT.fortuneNote}">运气 <b>${G.phase === "settle" && BT && BT.S.slot && !U.slotPulled ? BT.S.slot.luck0 : luckNow()}</b></span>
+    <span>金币 <span class="gold">${fmt(gold)}</span></span><span title="这一层主盘最多押多少（规则里的 C）">押注上限 ${fmt(C())}</span>${G.path ? `<span class="kw">${TEXT.pathName[G.path]}</span>` : ""}${G.path === 1 ? `<span>资金池 ${fmt(poolSize())}</span><span title="${TEXT.angerNote}">怒气 <b class="${angerNow() >= 50 ? "bad" : ""}">${angerNow()}</b></span><span>复活卡 <b>${G.revives || 0}</b></span>` : ""}<span title="${heatNote()}">热度 <b>${heat}</b></span><span title="${TEXT.fortuneNote}">运气 <b>${G.phase === "settle" && BT && BT.S.slot && !U.slotPulled ? BT.S.slot.luck0 : luckNow()}</b></span>
     <span class="wrapbtn"><button data-a="modal" data-v="team">队伍 ${G.team.length}</button><button data-a="modal" data-v="deck">牌库 ${G.deck.length}</button><button data-a="modal" data-v="blacks">黑幕 ${G.blacks.length}/${CONFIG.blackSlots}</button><button data-a="modal" data-v="save">存档</button><button data-a="modal" data-v="rules">规则</button></span>
   </div>`;
 }
@@ -1317,10 +1377,11 @@ function rulesHTML() {
     <p><b>一层怎么走：</b>备战选 3 人 → 庄家开盘下注 → 回合制出牌 → 结算 → 奖励三选一（勇者赢了才有）→ 商店。每 5 层一个 Boss，赢了 Boss 才能撤离。</p>
     <p><b>庄家怎么定价：</b>押赢按"天神出力帮忙"推演，押输按"天神袖手旁观"推演。胜率 ≥ 95% 的那一边不开盘。热度高于 50，庄家会高估勇者；低于 50 会低估。</p>
     <p><b>养成：</b>勇者花钱升级，每级生命、攻击、治疗 ×${CONFIG.level.mult}，等级上限等于层数。星辰牌加的是基础数值，会跟着等级放大。命运牌的数值随层数自动成长。</p>
+    <p><b>C 是什么：</b>C 就是这一层的押注上限（主盘最多押多少）。文中"2C"就是 2 个押注上限，第 1 层 C = 100，每层涨约 12%。</p>
     <p><b>阵亡和复活：</b>勇者赢了，阵亡的人全部免费复活。普通层输了，交过路费全队复活（现在这一段是 ${tollBase()}C）；不交，这场阵亡的勇者永久失去。战斗中可以花 ${CONFIG.revive.inBattle}C 原地复活一人。</p>
     <p><b>${TEXT.luckNote}</b></p><p>${TEXT.bossNote}</p>
     <p><b>第 25 层三选一：</b>${TEXT.fork.p1.name}——${TEXT.fork.p1.desc}　${TEXT.fork.p2.name}——${TEXT.fork.p2.desc}　${TEXT.fork.p3.name}。</p>
-    <p><b>第 50 层：</b>老虎机定结局（世纪假赛 ${CONFIG.finale.slot.fix} 份、堂堂正正 ${CONFIG.finale.slot.duel} 份、收购魔塔 ${CONFIG.finale.slot.tower} 份），可以花钱重摇，每次翻倍；堂堂正正随时可选。收购魔塔：身家到 ${CONFIG.finale.towerMin}C 才买得起，价格是身家的 ${Math.round(CONFIG.finale.towerPct * 100)}%。</p>
+    <p><b>第 50 层：</b>老虎机定结局（世纪假赛 ${CONFIG.finale.slot.fix} 份、堂堂正正 ${CONFIG.finale.slot.duel} 份、收购魔塔 ${CONFIG.finale.slot.tower} 份），可以花钱重摇，每次翻倍；堂堂正正随时可选。摇到堂堂正正是加强版：胜率约三成五，赢了金币 ×${CONFIG.finale.duelPlus.mult}。收购魔塔：身家到 ${CONFIG.finale.towerMin}C 才买得起，价格是身家的 ${Math.round(CONFIG.finale.towerPct * 100)}%。</p>
     <p><b>同一局只结算一次：</b>读档重打可以，但金库、英灵殿和战绩不会重复入账。</p>
     <p><b>Boss 层：</b>只能押赢。输了交过路费（现在这一段是 ${bossTollC()}C）全队复活过关，交不起就团灭，带出 0。</p>
     <p><b>撤离：</b>每打赢一个 Boss 可以摇一次带出率（${CONFIG.extractSlot.tiers.map((t, k) => Math.round(t * 100) + "% 占 " + CONFIG.extractSlot.weights[k]).join("、")} 份），摇完再决定走不走。</p>
@@ -1334,7 +1395,8 @@ function foeHTML() {
   const f = G.foe, b = buildPreview();
   const tier = f.boss ? `<span class="bad"><b>Boss：${f.name}</b></span>` : `<b>${{ weak: "弱怪层", strong: "强怪层", easy: "新手层", tutorial: "新手层" }[f.tier]} · ${f.name}</b>　<span class="muted small">${f.tip}</span>`;
   return `<p>${tier}</p><div class="units">${monsters(b).map(m => `<div class="unit M ${m.boss ? "boss" : ""}"><div class="nm">${m.name}</div><div class="small">生命 ${fmt(m.maxHp)}　攻击 ${fmt(m.atk)}</div>${m.boss ? `<div class="intent">招式循环：${m.pattern.map(k => TEXT.intent[k].replace(/（.*）/, "")).join(" → ")}</div>` : ""}</div>`).join("")}</div>
-    ${f.boss ? `<p class="muted small">${TEXT.bossNote}<br>Boss 层只能押赢；输了要交 ${fmt(bossTollG())} G 过路费，交不起就团灭。</p>` : ""}`;
+    ${f.angerMul ? `<p class="warn small">庄家怒气 ${angerNow()}：这一层怪物生命和攻击 ×${f.angerMul.toFixed(2)}（庄家知道，赔率已经算进去了）。</p>` : ""}
+    ${f.boss ? `<p class="muted small">${TEXT.bossNote}<br>${G.path === 1 ? "Boss 层只能押赢；亡命徒路线输了没有过路费，算过关但没有赏金，阵亡的人不复活。" : `Boss 层只能押赢；输了要交 ${fmt(bossTollG())} G 过路费，交不起就团灭。`}</p>` : ""}`;
 }
 function buildPreview() { return makeBattle({ heroes: [], monsters: G.foe.monsters, minion: G.foe.minion, C: C(), heat: G.heat, scale: cardScale(G.floor), boss: G.foe.boss }); }
 function finaleHTML() {
@@ -1346,18 +1408,24 @@ function finaleHTML() {
     <div class="row"><button class="primary big" data-a="finaleSpin">拉杆</button></div></div>`;
   const k = sp.kind, canTower = G.gold >= towerMin();
   const extra = k === "tower" ? `<p>门槛 <b>${fmt(towerMin())}</b> G（${CONFIG.finale.towerMin}C），你现在有 ${fmt(G.gold)} G。${canTower ? `价格是身家的 ${Math.round(CONFIG.finale.towerPct * 100)}%：<b>${fmt(towerCost())}</b> G，带走剩下的 <span class="gold">${fmt(G.gold - towerCost())}</span> G。` : `<span class="bad">身家不够，买不了。</span>`}</p>` : "";
+  const plusOK = k === "duel" && !G.duelPlusLost, dp = f.duelPlus;
+  if (plusOK) return `<div class="card slotbox">${head}<div class="reels"><span class="reel wide" style="width:260px;font-size:24px">${dp.name}</span></div>
+      <h3>摇到了：${dp.name}</h3><p style="text-align:left">${dp.desc}</p><p>现在 ${fmt(G.gold)} G，赢了变成 <span class="gold">${fmt(G.gold * CONFIG.finale.duelPlus.mult)}</span> G。</p>
+      <div class="row"><button class="primary" data-a="finale" data-v="duelPlus">打加强版</button><button data-a="finaleSpin" ${G.gold >= respinPrice() ? "" : "disabled"}>重摇 −${fmt(respinPrice())} G</button></div>
+      <p class="muted small">已重摇 ${sp.n} 次，下一次 ${fmt(respinPrice())} G，之后每次翻倍。</p></div>
+    <div class="card fin"><h3>保底：${f.duel.name}（普通版）</h3><p>${f.duel.desc}</p><div class="row"><button data-a="finale" data-v="duel">改打普通版</button></div></div>`;
   const takeBtn = k === "tower" ? `<button class="${canTower ? "primary" : ""}" data-a="finale" data-v="tower" ${canTower ? "" : "disabled"}>${canTower ? "买下魔塔，结束这一局" : "钱不够"}</button>` : `<button class="primary" data-a="finale" data-v="${k}">走这个结局</button>`;
   return `<div class="card slotbox">${head}<div class="reels"><span class="reel wide" style="width:220px;font-size:26px">${f[k].name}</span></div>
       <h3>摇到了：${f[k].name}</h3><p style="text-align:left">${f[k].desc}</p>${extra}
       <div class="row">${takeBtn}<button data-a="finaleSpin" ${G.gold >= respinPrice() ? "" : "disabled"}>重摇 −${fmt(respinPrice())} G</button></div>
       <p class="muted small">已重摇 ${sp.n} 次，下一次 ${fmt(respinPrice())} G，之后每次翻倍。</p></div>
-    ${k === "duel" ? "" : `<div class="card fin"><h3>保底：${f.duel.name}</h3><p>${f.duel.desc}</p><div class="row"><button data-a="finale" data-v="duel">改走${f.duel.name}</button></div></div>`}`;
+    ${k === "duel" ? "" : `<div class="card fin"><h3>保底：${f.duel.name}（普通版）</h3><p>${f.duel.desc}</p><div class="row"><button data-a="finale" data-v="duel">改走${f.duel.name}</button></div></div>`}`;
 }
 function prepHTML() {
   if (isFinale() && !G.finale) return finaleHTML() + `<div class="card"><h3>你的队伍</h3><div class="units">${G.team.map(m => memberCard(m, { train: true })).join("")}</div></div>`;
   const sc = SCRIPTS[G.scriptKey], cap = levelCap(), low = G.team.filter(m => m.lv < cap);
   const allCost = low.reduce((a, m) => a + (cap - m.lv), 0) * trainCost();
-  return `${isFinale() ? `<div class="card"><b>${TEXT.finale[G.finale].name}</b>　<button class="small" data-a="finale" data-v="">回去重新选</button></div>` : ""}<div class="card"><h3>本层敌人</h3>${foeHTML()}
+  return `${isFinale() ? `<div class="card"><b>${G.finale === "duel" && G.duelPlus ? TEXT.finale.duelPlus.name : TEXT.finale[G.finale].name}</b>　<button class="small" data-a="finale" data-v="">回去重新选</button></div>` : ""}<div class="card"><h3>本层敌人</h3>${foeHTML()}
       <p class="small"><b>本层剧本（已锁定）：</b>「${scriptName(G.scriptKey)}」${sc.need ? `<span class="muted">　要有${needOK(sc.need, []) || ""}上阵才能押</span>` : ""}</p></div>
     <div class="card"><h3>选人上阵（点勇者选中，再点取消；先点的站 1 号位，怪物默认打 1 号位）</h3>
       <div class="units">${G.team.map(m => memberCard(m, { pick: true, train: true })).join("")}</div>
@@ -1375,7 +1443,7 @@ function betHTML() {
   let capNote = "";
   if (!sq.closed && poolOn()) {
     const P = poolSize(), raw = Math.floor(bt.amt * sq.odds * mult) - bt.amt, got = squeeze(raw, P);
-    capNote = `<p class="hint" id="poolnote">无封顶：庄家资金池 <b>${fmt(P)}</b> G。押得越大，赔率被你自己压得越低，这一层最多赢走整个池子（主盘 + 滚球合计）。${bt.amt > 0 ? `<br>押 ${fmt(bt.amt)} G：牌面 ${(sq.odds * mult).toFixed(2)} 倍 → 实际 <b>${(1 + got / bt.amt).toFixed(2)}</b> 倍，押中净赚 <b>${fmt(got)}</b> G（不压价的话是 ${fmt(raw)} G）。` : ""}</p>`;
+    capNote = `<p class="hint" id="poolnote">${angerNow() ? `庄家怒气 <b>${angerNow()}</b>：资金池 ×${(1 + angerNow() * P1().anger.pool / 100).toFixed(1)}，押中后净赚再多拿 <b>${angerBonusPct()}%</b>。<br>` : ""}亡命徒：庄家资金池 <b>${fmt(P)}</b> G。押得越大，赔率被你自己压得越低，这一层最多赢走整个池子（主盘 + 滚球合计）。${bt.amt > 0 ? `<br>押 ${fmt(bt.amt)} G：牌面 ${(sq.odds * mult).toFixed(2)} 倍 → 实际 <b>${(1 + got / bt.amt).toFixed(2)}</b> 倍，押中净赚 <b>${fmt(got)}</b> G（不压价的话是 ${fmt(raw)} G）${angerNow() ? `，加上怒气分红一共 <b>${fmt(got + Math.round(got * angerBonusPct() / 100))}</b> G` : ""}。押中以后怒气会涨到约 ${Math.min(P1().anger.max, Math.round(angerNow() + P1().anger.perC * (got + Math.round(got * angerBonusPct() / 100)) / C()))}。` : ""}</p>`;
   } else if (!sq.closed) {
     const capAmt = Math.min(up10(capG / (sq.odds * mult)), mainCap());
     capNote = bt.amt * sq.odds * mult > capG ? `<p class="warn">押 ${fmt(bt.amt)} G 会超过本层最高派彩 ${fmt(capG)} G：押 ${fmt(capAmt)} G 就到顶了，再多押不会多赚。</p>`
@@ -1562,6 +1630,7 @@ function settleHTML() {
   if (BT.lives.length) lines.push(row(`滚球：${BT.lives.map(l => `${fmt(l.amt)} × ${l.odds}`).join("、")}`, sgn(S.livePay - S.liveStake)));
   if (S.bonus) lines.push(row(`黑幕加成：${S.bonusNotes.join("、")}`, sgn(S.bonus)));
   if (S.slot) lines.push(row(`老虎机：${TEXT.slot[S.slot.key + "_"]}${S.slot.pity ? "（否极泰来）" : ""}`, sgn(S.slotBonus)));
+  if (S.angerBonus) lines.push(row(`怒气分红：怒气 ${S.anger0}，押中净赚多拿 ${Math.round(S.anger0 * P1().anger.bonus)}%`, sgn(S.angerBonus)));
   if (S.refund) lines.push(row("保险经纪退回 20% 本金", sgn(S.refund)));
   if (BT.script.amt) lines.push(row(`剧本盘「${scriptName(BT.script.key)}」${S.scriptHit ? "发生了" : "没发生"}`, sgn(S.scriptPay - BT.script.amt)));
   if (S.capped) lines.push(row(S.pool ? `（资金池 ${fmt(S.pool)} G：押得大，赔率被压低，比牌面少拿 ${fmt(S.capped)}）` : `（超过本层最高派彩 ${fmt(payoutCapG())} G，扣掉 ${fmt(S.capped)}）`, ""));
@@ -1569,7 +1638,14 @@ function settleHTML() {
   if (G.stash) others.push(`小金库 ${fmt(G.stash)}`); if (BT.miser) others.push(`守财奴 ${fmt(BT.miser)}`); if (S.lifeins) others.push(`阵亡保险 ${fmt(S.lifeins)}`); if (S.gate) others.push(`门票分成 ${fmt(S.gate)}`);
   const dead = heroes(b).filter(h => h.dead);
   let heroPart;
-  if (S.fix) heroPart = S.win ? `<p class="bad"><b>演砸了：勇者把魔王打死了。</b>押的钱全没，但魔王没了，剩下的金币全归你。</p>` : `<p class="good"><b>世纪假赛成功。</b>魔王陪你演完了最后一场戏，金币 100% 带走。</p>`;
+  if (S.perma && !S.fix) {
+    const lost = dead.filter(h => !S.saved.includes(h.uid));
+    heroPart = (S.win ? `<p class="good">勇者胜。</p>` : `<p class="bad">勇者败${S.res && G.foe.boss ? "：Boss 层算过关，但没有赏金" : ""}。</p>`) +
+      (dead.length ? `<h3>亡命徒：阵亡的人不会复活</h3><p class="small">手上复活卡 <b>${G.revives}</b> 张（已选 ${S.saved.length} 张）。点名字用卡救人，再点取消。${BT.b.immortal ? "「不朽」生效：本场阵亡的人全部保住，不花卡。" : ""}</p>
+        <div class="row">${dead.map(h => `<button class="${S.saved.includes(h.uid) ? "primary" : ""}" data-a="save" data-v="${h.uid}" ${BT.b.immortal ? "disabled" : ""}>${S.saved.includes(h.uid) ? "✓ 救回 " : "救 "}${h.name}</button>`).join("")}</div>
+        ${lost.length ? `<p class="bad">确认后永久离队：${lost.map(h => h.name).join("、")}${lost.length >= G.team.length ? "（队伍就没人了，这一局结束，带出 0）" : ""}</p>` : `<p class="good">全部救回。</p>`}` : `<p class="muted">没有人阵亡。</p>`) +
+      `<p class="small">庄家怒气：${S.anger0} → <b>${S.anger1}</b>${S.anger1 > S.anger0 ? "（下一层资金池更大、分红更多，怪物也更强）" : S.anger1 < S.anger0 ? "（没押中，怒气减半）" : ""}</p>`;
+  } else if (S.fix) heroPart = S.win ? `<p class="bad"><b>演砸了：勇者把魔王打死了。</b>押的钱全没，但魔王没了，剩下的金币全归你。</p>` : `<p class="good"><b>世纪假赛成功。</b>魔王陪你演完了最后一场戏，金币 100% 带走。</p>`;
   else if (S.win) heroPart = dead.length ? `<p class="good">勇者赢了，阵亡的 ${dead.map(h => h.name).join("、")} 免费复活。</p>` : `<p class="muted">没有人阵亡。</p>`;
   else if (!S.bossLoss) {
     const can = G.gold >= S.toll;
@@ -1590,7 +1666,7 @@ function settleHTML() {
     ${reels(["？", "？", "？"])}
     <p class="muted small">现在运气 ${sl.luck0}：${slotOdds0(sl.luck0).map(z => TEXT.slot[z.key + "_"].split(/[！：]/)[0] + " " + (z.p * 100).toFixed(1) + "%").join("、")}${sl.pity ? "。<b>否极泰来已触发：必出三个金币</b>" : ""}</p>
     <div class="row"><button class="primary big" data-a="slotPull">${TEXT.slot.pull}</button></div></div>`;
-  const slotCard = sl ? `<div class="card slotbox ${sl.key}"><h3>老虎机</h3>${reels(sl.reels)}<p><b class="${sl.key === "miss" ? "muted" : "good"}">${TEXT.slot[sl.key + "_"]}${sl.bonus ? `　${sgn(sl.bonus)} G` : ""}</b>　<span class="muted small">运气 ${sl.luck0} → ${sl.luck1}</span></p></div>`
+  const slotCard = sl ? `<div class="card slotbox ${sl.key}"><h3>老虎机</h3>${reels(sl.reels)}<p><b class="${sl.key === "miss" ? "muted" : "good"}">${TEXT.slot[sl.key + "_"]}${sl.bonus ? `　${sgn(sl.bonus)} G` : ""}${sl.card ? "　再送 1 张复活卡" : ""}</b>　<span class="muted small">运气 ${sl.luck0} → ${sl.luck1}</span></p></div>`
     : m.amt && S.mainHit && !S.fix && m.amt < slotMinStake() ? `<p class="muted small">${TEXT.slot.need}（这一层要押 ${fmt(slotMinStake())} G 以上）</p>` : "";
   return `${sl ? slotCard : ""}<div class="card"><h3>${res.win ? `<span class="good">勇者胜</span>` : `<span class="bad">勇者败</span>`}（第 ${res.end} 回合结束）　<span class="muted small">热度 ${S.heat0} → ${S.heat1}</span></h3>
     ${G.stats.betray && b.flags.holyBetray ? `<p class="hint">彩蛋达成：<b>圣光叛变</b>（本局第 ${G.stats.betray} 次）</p>` : ""}
@@ -1600,6 +1676,7 @@ function settleHTML() {
       ${row("<b>押注赚了</b>", `<b>${sgn(bill.betProfit)}</b>`)}
       ${S.bounty ? row("过关赏金", sgn(S.bounty)) : ""}
       ${bill.other ? row(`其他收入：${others.join("、")}`, sgn(bill.other)) : ""}
+      ${S.duel2 ? row(`<b>堂堂正正·加强版：金币 ×${CONFIG.finale.duelPlus.mult}</b>`, `<b>${sgn(S.duel2)}</b>`) : ""}
       ${tollPaid() ? row(S.bossLoss ? "Boss 过路费" : "输了的过路费", sgn(-tollPaid())) : ""}
       ${row("买点数花了", sgn(-BT.spentPoints))}
       ${row("原地复活花了", sgn(-BT.spentRevive))}
@@ -1634,7 +1711,7 @@ function forkHTML() {
   const box = (k, d, btn) => `<div class="card fin"><h3>${d.name}</h3><p>${d.desc}</p>${btn}</div>`;
   const p3 = !win ? `<p class="bad">${t.lost}</p>` : !sp ? `<p>先摇带出率，再决定。现在运气 ${luckNow()}：${od.map(o => `${pct(o.rate)} 的机会 ${(o.p * 100).toFixed(0)}%`).join("、")}。</p><div class="row"><button class="primary" data-a="spinExtract">摇带出率</button></div>`
     : `<p>摇到了 <b class="good">${pct(r)}</b>：金币 ${fmt(G.gold)} G → 带出 <span class="gold">${fmt(Math.floor(G.gold * r))}</span> G。</p><div class="row"><button data-a="fork" data-v="3">带着钱撤离，结束这一局</button></div>`;
-  return `<div class="card"><h3>${t.title}</h3><p class="muted">现在有 ${fmt(G.gold)} G（${(G.gold / C()).toFixed(1)} 个限红）。选了就不能改。</p></div>
+  return `<div class="card"><h3>${t.title}</h3><p class="muted">现在有 ${fmt(G.gold)} G（${(G.gold / C()).toFixed(1)} 个押注上限）。选了就不能改。</p></div>
     ${box(1, t.p1, `<p class="small">下一层资金池大约 <b>${fmt(Math.round(poolSize() * P1().poolGrow))}</b> G；普通层过路费至少是身家的 ${Math.round(P1().tollPct * 100)}%，Boss 层 ${Math.round(P1().bossTollPct * 100)}%。</p><div class="row"><button class="primary" data-a="fork" data-v="1">走路一</button></div>`)}
     ${box(2, t.p2, `<div class="row"><button class="primary" data-a="fork" data-v="2">走路二</button></div>`)}
     ${box(3, t.p3, p3)}`;
@@ -1653,6 +1730,7 @@ function shopHTML() {
     if (it.type === "fate") return cardBox(it.key, `<div class="row">${buyBtn(i, p, it.sold)}</div>`);
     if (it.type === "hero") { const d = HEROES[it.key], st = heroStats({ hp: d.hp, atk: d.atk, heal: d.heal || 0, hpAdd: 0, atkAdd: 0, healAdd: 0, lv: cap });
       return `<div class="fc hero"><b class="${rarCls(d.rarity)}">${d.name}</b> <span class="lv">Lv ${cap}</span><div class="ty">勇者 · ${TEXT.rarity[d.rarity]}</div><div class="small">生命 ${fmt(st.maxHp)}　${d.act === "heal" ? "治疗 " + fmt(st.heal) : d.act === "bard" ? "不攻击" : "攻击 " + fmt(st.atk)}<br>${TEXT.act[d.act]}${d.desc ? "<br>" + kwChip(d) + d.desc : ""}</div><div class="row">${buyBtn(i, p, it.sold)}</div></div>`; }
+    if (it.type === "revive") return `<div class="fc revive"><b class="rar-rare">${TEXT.revive.name}</b><div class="ty">亡命徒专用 · 手上 ${G.revives} / ${P1().revive.max}</div><div class="small">${TEXT.revive.desc}价格是 ${P1().revive.price}C 和身家 ${Math.round(P1().revive.pct * 100)}% 里高的那个。</div><div class="row">${buyBtn(i, p, it.sold)}</div></div>`;
     if (it.type === "pass") return `<div class="fc pass"><b class="legend">${TEXT.pass.name}</b><div class="ty">出口 · 只在这一次货架上</div><div class="small">${TEXT.pass.desc}</div>${it.revealed ? `<div class="reels"><span class="reel wide" style="width:110px;height:48px;line-height:48px;font-size:24px">${Math.round((it.rate + (has("comeback") ? CONFIG.blackEffects.comeback : 0)) * 100)}%</span></div><div class="small">现在走：带出 <span class="gold">${fmt(Math.floor(G.gold * (it.rate + (has("comeback") ? CONFIG.blackEffects.comeback : 0))))}</span> G</div><div class="row"><button class="small primary" data-a="passUse" data-i="${i}">${TEXT.pass.use}</button></div>` : `<div class="row"><button class="small primary" data-a="passReveal" data-i="${i}">${TEXT.pass.pull}</button></div>`}</div>`;
     const d = (it.type === "black" ? BLACKS : STARS)[it.key];
     if (it.key === "pluto" && !it.sold) return `<div class="fc star"><b class="${rarCls(d.rarity)}">${d.name}</b><div class="ty">星辰牌 · ${TEXT.rarity[d.rarity]}</div><div class="small">${d.desc}</div><div class="row"><button class="small primary" data-a="shopBuy" data-i="${i}">免费拿，选人</button></div></div>`;
@@ -1661,24 +1739,40 @@ function shopHTML() {
   const starPick = pk && pk.type === "star" && !pk.sold ? `<div class="hint"><b>把「${STARS[pk.key].name}」给谁？</b>（${STARS[pk.key].desc}）<div class="units">${G.team.filter(m => !STARS[pk.key].healer || m.act === "heal").map(m => memberCard(m, { star: U.starPick })).join("")}</div><button data-a="starCancel">不买了</button></div>` : "";
   return `<div class="card"><h3>商店（第 ${G.floor} 层战后）　<span class="gold">${fmt(G.gold)} G</span></h3>
     <p class="muted small">货架 ${CONFIG.shop.slots} 格，命运牌、黑幕牌、星辰牌从同一个大卡池里抽${G.path === 1 ? "，里面混着极少的撤离通行证" : ""}。黑幕 ${G.blacks.length} / ${CONFIG.blackSlots}。</p>
-    <div class="hand">${sh.items.map((it, i) => (it.type === "hero" ? "" : cell(it, i))).join("")}</div>${starPick}
-    <h3>勇者（队伍 ${G.team.length} / ${CONFIG.teamMax}）</h3><div class="hand">${sh.items.map((it, i) => (it.type === "hero" ? cell(it, i) : "")).join("") || `<span class="muted">这次没有勇者</span>`}</div>
+    <div class="hand">${sh.items.map((it, i) => (it.type === "hero" || it.type === "revive" ? "" : cell(it, i))).join("")}</div>${starPick}
+    <h3>勇者（队伍 ${G.team.length} / ${CONFIG.teamMax}）${G.path === 1 ? "和复活卡" : ""}</h3><div class="hand">${sh.items.map((it, i) => (it.type === "hero" || it.type === "revive" ? cell(it, i) : "")).join("") || `<span class="muted">这次没有勇者</span>`}</div>
+    ${G.path === 1 ? `<p class="muted small">亡命徒：商店每 ${P1().shopEvery} 层开一次，下一次是第 ${G.floor + P1().shopEvery - (G.floor % P1().shopEvery)} 层打完以后。</p>` : ""}
     <div class="row"><button data-a="refresh" class="${G.gold >= refreshPrice() ? "" : "no"}">刷新货架 −${fmt(refreshPrice())} G</button><span class="muted small">每刷一次贵一倍，下次进店重置${sh.refreshes ? `（这次已刷 ${sh.refreshes} 次）` : ""}</span><button data-a="modal" data-v="deck">删牌（每张 −${fmt(money(CONFIG.shop.del))} G）</button><button data-a="modal" data-v="blacks">卖黑幕牌</button></div></div>
     <div class="card"><h3>训练（下一层等级上限 Lv ${cap}，每级 −${fmt(trainCost())} G，全属性 ×${CONFIG.level.mult}）</h3>
       <div class="units">${G.team.map(m => memberCard(m, { train: true })).join("")}</div>
       <div class="row">${low.length ? `<button data-a="trainAll">全队升到 Lv ${cap}（−${fmt(allCost)} G）</button>` : `<span class="muted small">全队都练满了</span>`}</div></div>
     <div class="card"><div class="row"><button class="primary" data-a="leave">${G.floor >= CONFIG.floors ? "再战第 " + G.floor + " 层" : "去第 " + (G.floor + 1) + " 层"}</button></div></div>`;
 }
+const LEDGER_NAMES = { betWin: "押勇者赢", betLose: "押勇者输（假赛）", live: "滚球", script: "剧本盘", slot: "老虎机", anger: "怒气分红", duel2: "加强版对决翻倍", bonus: "黑幕牌加成",
+  refund: "保险退款", bounty: "过关赏金", perks: "其他收入（小金库、守财奴、阵亡保险、门票、卖黑幕）", toll: "过路费", revive: "战斗中原地复活", reviveCard: "复活卡", train: "勇者升级",
+  shop: "商店买东西", del: "删牌", refresh: "刷新货架", points: "加买点数", reroll: "换剧本", spin: "重摇结局", tower: "收购魔塔", old: "旧存档的账（以前没有分类）" };
+function ledgerHTML(o) {
+  const lg = o.ledger || {}, ks = Object.keys(lg).filter(k => lg[k]), inc = ks.filter(k => lg[k] > 0).sort((a, b) => lg[b] - lg[a]), exp = ks.filter(k => lg[k] < 0).sort((a, b) => lg[a] - lg[b]);
+  const tin = inc.reduce((a, k) => a + lg[k], 0), tout = -exp.reduce((a, k) => a + lg[k], 0), mx = Math.max(1, ...ks.map(k => Math.abs(lg[k])));
+  const bar = k => `<tr><td>${LEDGER_NAMES[k] || k}</td><td class="barc"><span class="bar ${lg[k] > 0 ? "in" : "out"}" style="width:${Math.max(2, Math.round(Math.abs(lg[k]) / mx * 100))}%"></span></td><td class="n">${sgn(lg[k])}</td></tr>`;
+  const h = o.goldHist || [], W = 320, H = 90, gmax = Math.max(1, ...h.map(x => x[1]));
+  const curve = h.length > 1 ? `<svg viewBox="0 0 ${W} ${H + 14}" class="curve"><polyline fill="none" stroke="#c9a227" stroke-width="2" points="${h.map((x, i) => `${Math.round(i / (h.length - 1) * W)},${Math.round(H - x[1] / gmax * H) + 2}`).join(" ")}"/>${h.map((x, i) => x[0] === CONFIG.fork.floor ? `<line x1="${Math.round(i / (h.length - 1) * W)}" x2="${Math.round(i / (h.length - 1) * W)}" y1="0" y2="${H}" stroke="#999" stroke-dasharray="3 3"/><text x="${Math.round(i / (h.length - 1) * W) + 3}" y="${H + 12}" font-size="10" fill="#888">第 25 层</text>` : "").join("")}<text x="2" y="10" font-size="10" fill="#888">最高 ${fmt(gmax)} G</text></svg>` : "";
+  return `<h3>这一局的钱是怎么来的</h3>
+    <table class="st ledger">${inc.length ? `<tr><td colspan="3"><b>收入</b></td></tr>${inc.map(bar).join("")}` : ""}${exp.length ? `<tr><td colspan="3"><b>支出</b></td></tr>${exp.map(bar).join("")}` : ""}
+      <tr class="tot"><td colspan="3">开局 ${fmt(o.start || CONFIG.startGold)} + 收入 ${fmt(tin)} − 支出 ${fmt(tout)} = 手上 <b>${fmt(o.gold)}</b> G</td></tr>
+      <tr class="tot"><td colspan="3">${fmt(o.gold)} × 带出率 ${Math.round(o.rate * 100)}% = 带出 <b class="gold">${fmt(o.takeGold)}</b> G</td></tr></table>
+    ${curve ? `<p class="muted small">身家变化（每层结算后）</p>${curve}` : ""}`;
+}
 function overHTML() {
   const o = G.over, st = G.stats;
   const title = { clear: TEXT.endings.clear, fix: TEXT.endings.fix, oops: TEXT.endings.oops, duel: TEXT.endings.duel, tower: TEXT.endings.tower, extract: `在第 ${o.floor} 层撤离`, wipe: `在第 ${o.floor} 层团灭`, noHeroes: `第 ${o.floor} 层之后无人可派，这一局结束` }[o.kind];
   return `<h1>${TEXT.title}</h1><div class="card"><h3>${title}</h3>
     ${o.kind === "tower" && o.towerPaid ? `<p>花 <b>${fmt(o.towerPaid)}</b> G（身家的 ${Math.round(CONFIG.finale.towerPct * 100)}%）买下了整座魔塔。</p>` : ""}
-    ${o.finalSpin != null ? `<p>无封顶路线的最后一摇：带出率 <b class="good">${Math.round(o.finalSpin * 100)}%</b></p>` : ""}
     <p>手上金币 ${fmt(o.gold)} G × 带出率 ${Math.round(o.rate * 100)}% = 带出 <span class="gold">${fmt(o.takeGold)}</span> G${o.dup ? "" : `，已存入金库（金库现在 ${fmt(META.vault)} G）`}。</p>
     ${o.dup ? `<p class="bad" id="dup"><b>${TEXT.dupSettle}</b>金库仍是 ${fmt(META.vault)} G。</p>` : `<p>${o.heroes.length ? `进入英灵殿：${o.heroes.join("、")}` : "没有勇者进入英灵殿。"}</p>`}
+    ${ledgerHTML(o)}
     <h3>这一局的高光</h3>
-    <p>赢了 ${st.wins} 层，输了 ${st.losses} 层，其中假赛押中 ${st.throws} 次；交过 ${st.tolls} 次过路费。${st.bestNet > 0 ? `<br>单层最赚：第 ${st.bestNetFloor} 层净赚 ${fmt(st.bestNet)} G。` : ""}${st.bossTrap ? `<br>用陷阱处决了 ${st.bossTrap} 个 Boss。` : ""}${st.betray ? `<br><b>圣光叛变 ${st.betray} 次。</b>` : ""}</p>
+    <p>赢了 ${st.wins} 层，输了 ${st.losses} 层，其中假赛押中 ${st.throws} 次；交过 ${st.tolls} 次过路费。${st.lost ? `亡命徒路线永久失去 ${st.lost} 名勇者，用复活卡救回 ${st.saved || 0} 名。` : ""}${st.bestNet > 0 ? `<br>单层最赚：第 ${st.bestNetFloor} 层净赚 ${fmt(st.bestNet)} G。` : ""}${st.bossTrap ? `<br>用陷阱处决了 ${st.bossTrap} 个 Boss。` : ""}${st.betray ? `<br><b>圣光叛变 ${st.betray} 次。</b>` : ""}</p>
     <div class="row"><button class="primary" data-a="home">回到首页</button></div></div>`;
 }
 
@@ -1770,6 +1864,7 @@ document.addEventListener("click", e => {
     case "unit": return clickUnit(id);
     case "end": uiEndTurn(); return;
     case "toll": return act(setToll(v));
+    case "save": return act(toggleSave(v));
     case "confirm": U.slotPulled = false; confirmSettle(); U.err = ""; window.scrollTo(0, 0); return render();
     case "extract": decideExtract(true); return render();
     case "stay": decideExtract(false); return render();
@@ -1787,7 +1882,7 @@ document.addEventListener("click", e => {
     case "del": return act(deleteCard(G.deck.indexOf(v)));
     case "sell": return act(sellBlack(i));
     case "leave": U.starPick = null; leaveShop(); U.err = ""; window.scrollTo(0, 0); return render();
-    case "finale": if (!v) { G.finale = null; G.foe = genFloor(G.floor); Q = null; return render(); } return act(chooseFinale(v));
+    case "finale": if (!v) { G.finale = null; G.duelPlus = false; G.foe = floorFoe(G.floor); Q = null; return render(); } return act(chooseFinale(v));
     case "hall": U.hallPick = v === "" ? null : Number(v); return render();
   }
 });
