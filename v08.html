@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>魔塔操盘手 v0.8.5</title>
+<title>魔塔操盘手 v0.8.6</title>
 <style>
 :root { --bg:#f6f5f1; --card:#fff; --ink:#1f1f1f; --muted:#6b6b6b; --line:#e2e0da; --accent:#2f6fde; --good:#1e8a4a; --bad:#c0392b; --gold:#a8730a; --dark:#6a3fb5; }
 * { box-sizing:border-box; }
@@ -81,6 +81,7 @@ button.big { font-size:18px; padding:10px 34px; }
 .curve { width:100%; max-width:480px; height:auto; background:#fafafa; border:1px solid var(--line); border-radius:6px; }
 .combo { font-size:11px; color:#8a5a00; background:#fff4d6; border-radius:4px; padding:1px 4px; margin-top:3px; }
 .combo.pair { color:#1d5a8a; background:#e7f1fb; } .link { color:#2f6b2f; }
+.once { color:#b3261e; }
 
 </style>
 </head>
@@ -91,7 +92,7 @@ button.big { font-size:18px; padding:10px 34px; }
 // 配置区：所有数值、名字、文字、图片路径都在这个文件里改
 // =====================================================================
 const CONFIG = {
-  version: "0.8.5",
+  version: "0.8.6",
   floors: 50, bossEvery: 5,
   startGold: 300, startHeroes: ["shield", "sword", "priest"], teamMax: 6, fieldMax: 3, blackSlots: 5, deckMin: 6,
   startDeck: [["strike", 4], ["guard", 3], ["mend", 2], ["oracle", 1]],
@@ -107,7 +108,7 @@ const CONFIG = {
   // 收购魔塔：身家到 towerMin×C 才买得起，价格 = 身家 × towerPct，剩下的带走
   finale: { maxOdds: 10, minStake: 0.1, duelTarget: 0.5, duelFloor: 0.3, slot: { fix: 55, duel: 35, tower: 10 }, duelPlus: { target: 0.35, mult: 2 }, respin: 2, respinGrow: 2, towerMin: 200, towerPct: 0.99 },
   // 第 25 层三选一
-  // path2 大押注：押注上限、派彩上限、剧本盘 ×capMul，过路费 ×tollMul；只在 floors 这几层能撤离，老虎机用 tiers / weights
+  // path2 大押注：押注上限、派彩上限、剧本盘 ×capMul，过路费 ×tollMul，第 25 层以后的 Boss 生命攻击 ×bossMul；只在 floors 这几层能撤离，老虎机用 tiers / weights
   fork: { floor: 25,
     // path1 亡命徒：死了不复活，没有过路费
     //   资金池 = pool×C(25)×poolGrow^(层数−25)×(heatBase+热度÷100)×(1+怒气×anger.pool÷100)
@@ -116,12 +117,12 @@ const CONFIG = {
     //   商店每 shopEvery 层开一次（第 25、50 层也开），每次 heroSlots 个勇者格。撤离只能靠商店里的通行证（权重 passW、档位 passTiers、权重 passWeights）
     // R：亡命徒路线庄家的返还率（1.0 = 不抽水）
     path1: { pool: 30, poolGrow: 1.2, heatBase: 0.5, house: 1.5, R: 1.0,
-      anger: { perC: 10, max: 100, pool: 2, bonus: 1, monster: 0.6 },
-      revive: { price: 1, pct: 0.03, max: 3 }, p1Slot: true,   // p1Slot：商店多 1 格"亡命徒专柜"，必出 1 张专属牌
+      anger: { perC: 10, max: 100, pool: 2, bonus: 1, monster: 0.4 },
+      revive: { price: 1, pct: 0.02, max: 3 }, p1Slot: true,   // p1Slot：商店多 1 格"亡命徒专柜"，必出 1 张专属牌
       // 亡命徒专属牌和三张旧牌在路一的新效果
       cards: { bountyKill: 0.5, bountyBoss: 3, spotlightHeat: 70, spotlightAnger: 2, spotlightMonster: 0.5, encoreHeat: 15, encoreAnger: 10, borrowPer: 25, veteranFloors: 5, veteranMul: 1.3, monkRise: 0.5, cometAnger: 20 }, inBattle: { c: 1, pct: 0.05 }, shopEvery: 2, heroSlots: 2,
       passW: 1.1, passTiers: [0.3, 0.5, 0.75, 1, 2], passWeights: [45, 30, 14, 10, 1] },
-    path2: { capMul: 2.5, tollMul: 1.5, floors: [35, 45], tiers: [0.3, 0.5, 0.75, 1, 1.5], weights: [35, 30, 20, 12, 3] } },
+    path2: { capMul: 2.5, tollMul: 2, bossMul: 1.15, floors: [35, 45], tiers: [0.3, 0.5, 0.75, 1, 1.5], weights: [35, 30, 20, 12, 3] } },
   // 玩家第一次到第 2 层时的固定教学怪阵（数值就是最终面板，不再乘倍率）
   tutorial2: { name: "前排送死", tip: "勇者先出手。前排小骷髅只有 8 点生命。", monsters: [["小骷髅", 8, 5], ["弩手", 65, 23]] },
   // 撤离老虎机：打赢 Boss 后先摇带出率，再决定走不走。tiers=带出率，weights=各档权重（运气把最低档以外的权重抬高）
@@ -153,7 +154,8 @@ const CONFIG = {
   level: { mult: 1.12, cost: 0.05 },
   // 商店：slots 个格子从同一个大卡池里抽，typeW=各类牌的权重；刷新价 refresh×C，每刷一次翻倍，每次进店重置
   // 勇者不在大卡池里，货架上另有 1 个固定的勇者格
-  shop: { slots: 5, typeW: { fate: 46, star: 28, black: 26 }, heroRarity: { basic: 40, common: 30, rare: 24, legend: 6 },
+  // onceDiscount：消耗牌（打出一次就从这一局的牌库里删掉）的价格倍数
+  shop: { onceDiscount: 0.8, slots: 5, typeW: { fate: 46, star: 28, black: 26 }, heroRarity: { basic: 40, common: 30, rare: 24, legend: 6 },
     del: 0.5, refresh: 0.2, refreshGrow: 2, rarity: { common: 65, rare: 28, legend: 7 },
     price: { fate: { basic: 0.3, common: 0.5, rare: 1, legend: 2 }, black: { common: 1, rare: 2, legend: 3 },
       star: { common: 0.5, rare: 1.2, legend: 2.5 }, hero: { basic: 1, common: 1.5, rare: 2.5, legend: 4 } } },
@@ -218,19 +220,19 @@ const CARDS = {
   fakedeath: { name: "假死机关", rarity: "rare", cost: 1, ty: "陷阱", target: "hero", kw: "阵亡", desc: "埋给一名勇者：他下次阵亡照算阵亡，但这场如果输了，过路费少 0.5C；亡命徒路线里：触发的勇者不算永久阵亡，战后归队" },
   lastgasp:  { name: "回光返照", rarity: "rare", cost: 2, ty: "复活", target: "none", kw: "复活", desc: "本回合阵亡的勇者以 1 生命当场站起来（每人每场一次）" },
   bloodrite: { name: "血祭", rarity: "rare", cost: 1, ty: "功能", target: "hero", kw: "阵亡", desc: "一名勇者立即阵亡，所有敌人（Boss 除外）受到他最大生命 50% 的伤害" },
-  soulswap:  { name: "灵魂互换", rarity: "rare", cost: 2, ty: "暗箱", target: "heroThenMonster", kw: "暗箱", desc: "交换一名勇者和一个怪物的当前生命（不超过各自上限）" },
+  soulswap:  { name: "灵魂互换", rarity: "rare", once: true, cost: 2, ty: "暗箱", target: "heroThenMonster", kw: "暗箱", desc: "交换一名勇者和一个怪物的当前生命（不超过各自上限）" },
   holyfool:  { name: "圣愚之光", rarity: "rare", cost: 2, ty: "剧本", target: "priest", kw: "剧本", desc: "牧师本回合改为攻击最前面的敌人，伤害 = 治疗量 × 2" },
   berserk:   { name: "狂战士之斧", rarity: "rare", cost: 2, ty: "暗箱", target: "unit", kw: "暗箱", desc: "一个单位本回合攻击 ×2，受到的伤害也 ×2" },
   darkdeal:  { name: "黑暗交易", rarity: "rare", cost: 1, ty: "功能", target: "none", kw: "点数", desc: "本回合加买点数不再翻倍（每个都按第一个的价格）" },
-  ragnarok:  { name: "诸神黄昏", rarity: "legend", cost: 3, ty: "暗箱", target: "none", kw: "暗箱", desc: "本回合所有单位（敌我都算，Boss 除外）攻击 ×3" },
-  rewrite:   { name: "命运重写", rarity: "legend", cost: 2, ty: "暗箱", target: "monsterThenAny", kw: "暗箱", desc: "指定一个怪物（Boss 除外）本回合改打你选的任意单位，可以让它打自己人" },
-  immortal:  { name: "不朽", rarity: "legend", cost: 3, ty: "复活", target: "none", kw: "复活", desc: "本场如果输了，免交过路费（Boss 层不算）；亡命徒路线里：本场阵亡的勇者全部保住" },
-  dice:      { name: "天命骰", rarity: "rare", cost: 0, ty: "运气", target: "none", kw: "运气", desc: "本场运气 +10；随机一名勇者本回合打瞌睡" },
-  scarecrow: { name: "替身稻草人", rarity: "common", cost: 2, ty: "陷阱", target: "none", kw: "阵亡", p1: true, desc: "亡命徒专属。本场每名上阵勇者第一次阵亡时，都有稻草人替他死，他留 1 生命站着" },
-  cicada:    { name: "金蝉脱壳", rarity: "common", cost: 1, ty: "陷阱", target: "hero", kw: "阵亡", desc: "埋给一名勇者：他本场第一次受到致命伤时撤出战场，不算阵亡，也不再参加这场。庄家看不见" },
+  ragnarok:  { name: "诸神黄昏", rarity: "legend", once: true, cost: 3, ty: "暗箱", target: "none", kw: "暗箱", desc: "本回合所有单位（敌我都算，Boss 除外）攻击 ×3" },
+  rewrite:   { name: "命运重写", rarity: "legend", once: true, cost: 2, ty: "暗箱", target: "monsterThenAny", kw: "暗箱", desc: "指定一个怪物（Boss 除外）本回合改打你选的任意单位，可以让它打自己人" },
+  immortal:  { name: "不朽", rarity: "legend", once: true, cost: 3, ty: "复活", target: "none", kw: "复活", desc: "本场如果输了，免交过路费（Boss 层不算）；亡命徒路线里：本场阵亡的勇者全部保住" },
+  dice:      { name: "天命骰", rarity: "rare", once: true, cost: 0, ty: "运气", target: "none", kw: "运气", desc: "本场运气 +10；随机一名勇者本回合打瞌睡" },
+  scarecrow: { name: "替身稻草人", rarity: "common", once: true, cost: 2, ty: "陷阱", target: "none", kw: "阵亡", p1: true, desc: "亡命徒专属。本场每名上阵勇者第一次阵亡时，都有稻草人替他死，他留 1 生命站着" },
+  cicada:    { name: "金蝉脱壳", rarity: "common", once: true, cost: 1, ty: "陷阱", target: "hero", kw: "阵亡", desc: "埋给一名勇者：他本场第一次受到致命伤时撤出战场，不算阵亡，也不再参加这场。庄家看不见" },
   chainfuse: { name: "连锁引信", rarity: "rare", cost: 1, ty: "陷阱", target: "none", kw: "陷阱", desc: "本场地雷爆炸时，其他敌人（Boss 除外）各受一半地雷伤害" },
-  ironmaiden:{ name: "铁处女", rarity: "legend", cost: 2, ty: "陷阱", target: "hero", kw: "陷阱", desc: "一名勇者本场每次挨打，都把这次伤害反弹给打他的人（Boss 也吃）；本回合敌人都打他" },
-  wrath:     { name: "天罚", rarity: "legend", cost: "X", ty: "功能", target: "none", kw: "点数", desc: "花掉你现在所有点数，对全体敌人造成 点数² × {n} 伤害（10 点就是 100 倍）。和天神降临一样能打到 Boss" },
+  ironmaiden:{ name: "铁处女", rarity: "legend", once: true, cost: 2, ty: "陷阱", target: "hero", kw: "陷阱", desc: "一名勇者本场每次挨打，都把这次伤害反弹给打他的人（Boss 也吃）；本回合敌人都打他" },
+  wrath:     { name: "天罚", rarity: "legend", once: true, cost: "X", ty: "功能", target: "none", kw: "点数", desc: "花掉你现在所有点数，对全体敌人造成 点数² × {n} 伤害（10 点就是 100 倍）。和天神降临一样能打到 Boss" },
   encore:    { name: "压轴好戏", rarity: "rare", cost: 1, ty: "功能", target: "hero", kw: "热度", p1: true, desc: "亡命徒专属。一名勇者本回合攻击 +{n}；他这回合打出击杀，热度 +15、庄家怒气 +10" },
   descent:   { name: "天神降临", rarity: "legend", cost: "X", ty: "功能", target: "none", kw: "点数", desc: "花掉你现在所有点数，每点对全体敌人造成 {n} 伤害。能直接打到 Boss（天罚也能）" },
 };
@@ -321,7 +323,7 @@ const COMBOS = [
 ];
 const TEXT = {
   title: "魔塔操盘手",
-  subtitle: "v0.8.5 · 组合技、保命牌、新勇者、勇者联动（白盒）",
+  subtitle: "v0.8.6 · 消耗牌（白盒）",
   intro: "你是腐败天神：派凡人勇者闯 50 层魔塔，在魔王的赌场押他们的输赢，再用命运牌暗中左右战斗。庄家看得见勇者和怪物，看不见你的牌、陷阱和加买的点数。",
   act: { front: "打最前面的敌人", back: "打最后面的敌人", lowest: "打血最少的敌人", heal: "给血最少的队友回血", bard: "不攻击" },
   rarity: { basic: "基础", common: "普通", rare: "稀有", legend: "传说" },
@@ -351,7 +353,7 @@ const TEXT = {
   },
   fork: { title: "第 25 层：上半场结束，选一条路", lost: "这一层是交过路费过的，不能在这里撤离，只能选路一或路二。",
     p1: { name: "路一：亡命徒", desc: "下注不设上限，最多押上全部身家；押得越大，赔率被你自己压得越低，每层最多赢走庄家的资金池。<b>勇者死了不复活</b>，没有过路费，只能靠复活卡救人。<b>庄家怒气</b>：押中赚得越多，怒气越高，资金池越大、押中多分钱越多，但下一层怪物也越强。商店每 2 层开一次。<b>Boss 层不能撤离</b>：只有在商店里刷到「撤离通行证」才能走。打到第 50 层，结局照常 100% 带走。" },
-    p2: { name: "路二：大押注", desc: "押注上限、派彩上限、剧本盘都放大到 2.5 倍，过路费放大到 1.5 倍。只有第 35 层和第 45 层打赢 Boss 才能撤离，老虎机多一档 150%。" },
+    p2: { name: "路二：大押注", desc: "押注上限、派彩上限、剧本盘都放大到 2.5 倍，过路费放大到 2 倍，后半程的 Boss 强一成五。只有第 35 层和第 45 层打赢 Boss 才能撤离，老虎机多一档 150%。" },
     p3: { name: "路三：现在就走", desc: "按摇到的带出率撤离，这一局结束。" } },
   pass: { name: "撤离通行证", desc: "无封顶路线唯一的出口。先摇带出率，再决定走不走。离开商店或刷新货架，它就没了。", pull: "摇带出率", use: "用它撤离" },
   pathName: { 1: "亡命徒", 2: "大押注" },
@@ -783,9 +785,11 @@ const angerBonusPct = () => P1().anger.bonus * angerNow();             // 押中
 const reviveCardPrice = () => Math.max(money(P1().revive.price), up10(G.gold * P1().revive.pct));
 const shopOpen = () => G.path !== 1 || G.floor === CONFIG.fork.floor || G.floor >= CONFIG.floors || G.floor % P1().shopEvery === 0;
 function afterFloor() { if (shopOpen()) { genShop(); G.phase = "shop"; autosave(); } else leaveShop(); }   // 路一不开店的层：直接去下一层
-function floorFoe(f) {   // 路一：怒气让怪物变强（庄家看得见，赔率会跟着变）
-  const foe = genFloor(f), k = angerMonster();
-  if (k > 1) { foe.monsters.forEach(m => { m.hp = Math.round(m.hp * k); m.atk = Math.round(m.atk * k); }); if (foe.minion) foe.minion = Object.assign({}, foe.minion, { hp: Math.round(foe.minion.hp * k), atk: Math.round(foe.minion.atk * k) }); foe.angerMul = k; }
+function floorFoe(f) {   // 路一：怒气让怪物变强；路二：后半程 Boss 加强（庄家都看得见，赔率会跟着变）
+  const foe = genFloor(f), ka = angerMonster(), kb = G.path === 2 && foe.boss ? P2().bossMul : 1, k = ka * kb;
+  if (k > 1) { foe.monsters.forEach(m => { m.hp = Math.round(m.hp * k); m.atk = Math.round(m.atk * k); }); if (foe.minion) foe.minion = Object.assign({}, foe.minion, { hp: Math.round(foe.minion.hp * k), atk: Math.round(foe.minion.atk * k) }); }
+  if (ka > 1) foe.angerMul = ka;
+  if (kb > 1) foe.p2Boss = kb;
   return foe;
 }
 function toggleSave(uid) {   // 路一结算：用复活卡救人
@@ -1142,7 +1146,9 @@ function playCard(i, t1, t2) {
     if (twoStep(id)) { if (!validTarget(id, u, 0) || !validTarget(id, v, 1, t1)) return { ok: false, err: "目标不对" }; }
     else if (!validTarget(id, u, 0)) return { ok: false, err: "目标不对" };
   }
-  BT.points -= cost; BT.hand.splice(i, 1); BT.discard.push(id);
+  BT.points -= cost; BT.hand.splice(i, 1);
+  if (cd.once) { const k = G.deck.indexOf(id); if (k >= 0) G.deck.splice(k, 1); L(`「${cd.name}」是消耗牌，用完从牌库里删掉`, "t"); }   // 消耗牌：这一局里用一次就没
+  else BT.discard.push(id);
   const t = u && T(b, u), n = CARD_NUM[id] ? scaled(b, CARD_NUM[id]) : 0;
   switch (id) {
     case "strike": t.atkAdd += n; L(`强攻 → ${u.name}：本回合攻击 +${n}`, u.side === "M" ? "t" : ""); break;
@@ -1398,7 +1404,7 @@ function usePass(i) {   // 当场撤离；不用的话，离开商店或刷新�
   const it = G.shop && G.shop.items[i]; if (!it || it.type !== "pass" || it.sold) return { ok: false, err: "没有通行证" };
   it.revealed = true; G.extractSpin = { idx: -1, base: it.rate, luck: luckNow(), pass: true }; endRun("extract"); return { ok: true };
 }
-const priceMul = (type, key) => { if (type === "pass") return 0; const d = { fate: CARDS, black: BLACKS, star: STARS, hero: HEROES }[type][key]; return key === "pluto" ? 0 : d.price || CONFIG.shop.price[type][d.rarity]; };
+const priceMul = (type, key) => { if (type === "pass") return 0; const d = { fate: CARDS, black: BLACKS, star: STARS, hero: HEROES }[type][key]; return key === "pluto" ? 0 : (d.price || CONFIG.shop.price[type][d.rarity]) * (type === "fate" && d.once ? CONFIG.shop.onceDiscount : 1); };
 const priceOf = (type, key) => (type === "revive" ? reviveCardPrice() : key === "pluto" || type === "pass" ? 0 : money(priceMul(type, key)));
 function applyStar(key, m) {
   switch (key) {
@@ -1485,7 +1491,7 @@ function comboChip(key) {   // 卡面上的组合提示（牌的组合技、勇�
 function pairsOf(keys) { return HERO_PAIRS.filter(p => p.heroes.every(k => keys.includes(k))); }
 function cardBox(key, extra) {
   const c = CARDS[key];
-  return `<div class="fc ${c.ty === "陷阱" ? "trap" : c.ty === "暗箱" ? "dark" : ""}"><span class="cost">${c.cost}</span><b class="${rarCls(c.rarity)}">${c.name}</b><div class="ty">${TEXT.rarity[c.rarity]} · ${c.ty}</div><div class="small">${cardDesc(key)}</div>${comboChip(key)}${extra || ""}</div>`;
+  return `<div class="fc ${c.ty === "陷阱" ? "trap" : c.ty === "暗箱" ? "dark" : ""}"><span class="cost">${c.cost}</span><b class="${rarCls(c.rarity)}">${c.name}</b><div class="ty">${TEXT.rarity[c.rarity]} · ${c.ty}${c.once ? ` · <b class="once">消耗</b>` : ""}</div><div class="small">${cardDesc(key)}</div>${comboChip(key)}${extra || ""}</div>`;
 }
 function topBar() {
   if (!G || G.phase === "over") return "";
@@ -1538,6 +1544,7 @@ function rulesHTML() {
     <p><b>撤离：</b>每打赢一个 Boss 可以摇一次带出率（${CONFIG.extractSlot.tiers.map((t, k) => Math.round(t * 100) + "% 占 " + CONFIG.extractSlot.weights[k]).join("、")} 份），摇完再决定走不走。</p>
     <p><b>押中老虎机：</b>${TEXT.slot.need}${CONFIG.slot.prizes.map(z => TEXT.slot[z.key + "_"] + "（" + Math.round(z.p * 100) + "%）").join("；")}。奖金不占派彩上限。</p>
     <p><b>${TEXT.fortuneNote}</b></p>
+    <p><b>消耗牌：</b>${Object.keys(CARDS).filter(k => CARDS[k].once).map(k => CARDS[k].name).join("、")}。打出一次就从这一局的牌库里删掉，商店价格打 ${Math.round(CONFIG.shop.onceDiscount * 10)} 折。其他命运牌这一局里一直留在牌库，每场重新洗牌。</p>
     <p><b>勇者搭档：</b>${HERO_PAIRS.map(p => `${p.name}（${p.heroes.map(k => HEROES[k].name).join(" + ")}：${p.desc}）`).join("；")}。</p>
     <p><b>组合技：</b>${COMBOS.map(c => `${c.name}（${c.flow}：${c.pieces.map(pieceName).join(" + ")}，${c.note}）`).join("；")}。</p>
     <p><b>七个关键词：</b></p>${TEXT.keywords.map(k => `<p><span class="kw">${k[0]}</span>${k[1]}</p>`).join("")}</div></details>`;
@@ -1548,6 +1555,7 @@ function foeHTML() {
   const f = G.foe, b = buildPreview();
   const tier = f.boss ? `<span class="bad"><b>Boss：${f.name}</b></span>` : `<b>${{ weak: "弱怪层", strong: "强怪层", easy: "新手层", tutorial: "新手层" }[f.tier]} · ${f.name}</b>　<span class="muted small">${f.tip}</span>`;
   return `<p>${tier}</p><div class="units">${monsters(b).map(m => `<div class="unit M ${m.boss ? "boss" : ""}"><div class="nm">${m.name}</div><div class="small">生命 ${fmt(m.maxHp)}　攻击 ${fmt(m.atk)}</div>${m.boss ? `<div class="intent">招式循环：${m.pattern.map(k => TEXT.intent[k].replace(/（.*）/, "")).join(" → ")}</div>` : ""}</div>`).join("")}</div>
+    ${f.p2Boss ? `<p class="warn small">大押注路线：后半程 Boss 生命和攻击 ×${f.p2Boss}。</p>` : ""}
     ${f.angerMul ? `<p class="warn small">庄家怒气 ${angerNow()}：这一层怪物生命和攻击 ×${f.angerMul.toFixed(2)}（庄家知道，赔率已经算进去了）。</p>` : ""}
     ${f.boss ? `<p class="muted small">${TEXT.bossNote}<br>${G.path === 1 ? "Boss 层只能押赢；亡命徒路线输了没有过路费，算过关但没有赏金，阵亡的人不复活。" : `Boss 层只能押赢；输了要交 ${fmt(bossTollG())} G 过路费，交不起就团灭。`}</p>` : ""}`;
 }
@@ -1764,7 +1772,7 @@ function battleHTML() {
     const stageTip = selId ? ({ heroThenMonster: ["先点一名勇者", "再点一个怪物"], twoHeroes: ["先点一名勇者", "再点另一名勇者"], monsterThenAny: ["先点一个怪物", "再点它要打的单位"] }[CARDS[selId].target] || ["点亮的单位都可以，蓝字是打出后的效果"])[U.stage] : "";
     step = `<div class="card"><div class="bar"><b>第 ${b.round} 回合 · 天神阶段</b><span class="sp"></span>点数 <b class="pts">${BT.points}</b><button data-a="buy" ${BT.bought >= CONFIG.maxBuy ? "disabled" : ""} class="small">加买 1 点 −${fmt(pointPrice(BT.bought))} G</button></div>
       ${offer}${selId ? `<p class="hint">选目标：${stageTip}（再点一次手牌取消）</p>` : ""}
-      <div class="hand">${BT.hand.map((id, i) => { const c = CARDS[id], cost = cardCost(id); return `<div class="fc ${U.sel === i ? "sel" : ""} ${cost > BT.points ? "no" : ""} ${c.ty === "陷阱" ? "trap" : c.ty === "暗箱" ? "dark" : ""}" data-a="card" data-i="${i}"><span class="cost">${c.cost}</span><b class="${rarCls(c.rarity)}">${c.name}</b><div class="ty">${c.ty}</div><div class="small">${cardDesc(id)}</div></div>`; }).join("")}</div>
+      <div class="hand">${BT.hand.map((id, i) => { const c = CARDS[id], cost = cardCost(id); return `<div class="fc ${U.sel === i ? "sel" : ""} ${cost > BT.points ? "no" : ""} ${c.ty === "陷阱" ? "trap" : c.ty === "暗箱" ? "dark" : ""}" data-a="card" data-i="${i}"><span class="cost">${c.cost}</span><b class="${rarCls(c.rarity)}">${c.name}</b><div class="ty">${c.ty}${c.once ? ` · <b class="once">消耗</b>` : ""}</div><div class="small">${cardDesc(id)}</div></div>`; }).join("")}</div>
       <div class="row"><button class="primary" data-a="end">结束出牌，开打</button><span class="muted small">抽牌堆 ${BT.draw.length} · 弃牌堆 ${BT.discard.length}</span></div></div>`;
   }
   const recap = !U.anim && BT.lastRound && BT.lastRound.length ? `<div class="card"><details><summary>上回合发生了什么（${BT.lastRound.length} 条）</summary><div class="log" style="max-height:none;margin-top:6px">${BT.lastRound.map(l => `<div class="${l.cls || ""}">${l.txt}</div>`).join("")}</div></details></div>` : "";
